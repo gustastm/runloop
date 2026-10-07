@@ -33,6 +33,14 @@ export function toDeg(rad) {
  * @returns {number} Distância em metros
  */
 export function haversineDistance(lat1, lon1, lat2, lon2) {
+  if (typeof lat1 === 'object' && lat1 !== null && typeof lon1 === 'object' && lon1 !== null) {
+    const p1 = lat1;
+    const p2 = lon1;
+    lat2 = p2.lat;
+    lon2 = p2.lng !== undefined ? p2.lng : p2.lon;
+    lon1 = p1.lng !== undefined ? p1.lng : p1.lon;
+    lat1 = p1.lat;
+  }
   const dLat = toRad(lat2 - lat1);
   const dLon = toRad(lon2 - lon1);
 

@@ -4,7 +4,8 @@
  */
 
 import { CONFIG } from '../js/config.js';
-import { calculateTolerance, formatDistance, formatDuration } from '../js/geo.js';
+import { calculateTolerance, formatDistance, formatDuration, haversineDistance } from '../js/geo.js';
+import { APP_STATES, Store } from '../js/store.js';
 
 let passed = 0;
 let failed = 0;
@@ -201,6 +202,63 @@ assert(ui.loadingCardHidden && !ui.errorCardHidden, 'Após falha de rede: loadin
 // Usuário clica no mapa para tentar de novo
 ui.setAppState('IDLE');
 assert(ui.loadingCardHidden && ui.errorCardHidden, 'Ao selecionar novo ponto: erro é limpo e app pronto');
+
+// ----------------------------------------------------
+// TESTE: Regras de Negócio do Modo Escolher Pontos (SEÇÃO 12)
+// ----------------------------------------------------
+console.log('\n[SEÇÃO 12] Regras de Negócio do Modo Escolher Pontos:');
+
+function determineRouteType(startPoint, endPoint) {
+  if (!startPoint) return { type: 'none', error: 'Defina o Início' };
+  if (!endPoint) return { type: 'loop', reason: 'Apenas Início definido' };
+  const dist = haversineDistance(startPoint, endPoint);
+  if (dist < 50) {
+    return { type: 'loop', distanceMeters: dist, reason: 'Início e Fim muito próximos (< 50 m)' };
+  }
+  return { type: 'point_to_point', distanceMeters: dist, reason: 'Início e Fim distintos (A -> B)' };
+}
+
+function checkSnapWarning(originalPoint, snappedPoint) {
+  const dist = haversineDistance(originalPoint, snappedPoint);
+  return {
+    needsWarning: dist > 200,
+    distanceMeters: Math.round(dist)
+  };
+}
+
+const ptA = { lat: -2.443000, lng: -54.708300 };
+const ptAPerto = { lat: -2.443100, lng: -54.708350 }; // ~12m
+const ptBLonge = { lat: -2.455000, lng: -54.715000 }; // ~1.5km
+
+const ruleSemFim = determineRouteType(ptA, null);
+assert(ruleSemFim.type === 'loop', 'Sem Fim escolhido: classificado como rota loop');
+
+const rulePerto = determineRouteType(ptA, ptAPerto);
+assert(rulePerto.type === 'loop' && rulePerto.distanceMeters < 50, 'Fim a < 50 m do Início: tratado automaticamente como loop');
+
+const ruleLonge = determineRouteType(ptA, ptBLonge);
+assert(ruleLonge.type === 'point_to_point' && ruleLonge.distanceMeters >= 50, 'Fim a >= 50 m do Início: rota Ponto a Ponto (A -> B)');
+
+const snapPerto = checkSnapWarning(ptA, { lat: -2.443300, lng: -54.708300 }); // ~33m
+assert(!snapPerto.needsWarning, 'Snap a <= 200 m não emite aviso de ajuste');
+
+const snapLonge = checkSnapWarning(ptA, { lat: -2.446000, lng: -54.708300 }); // ~333m
+assert(snapLonge.needsWarning && snapLonge.distanceMeters > 200, 'Snap a > 200 m dispara aviso de ajuste viário');
+
+// Validação de transições do Store para ESCOLHENDO_PONTOS
+const testStore = new Store();
+testStore.transitionTo(APP_STATES.REPOUSO);
+assert(testStore.getState().appState === APP_STATES.REPOUSO, 'Store em estado REPOUSO');
+
+testStore.transitionTo(APP_STATES.ESCOLHENDO_PONTOS);
+assert(testStore.getState().appState === APP_STATES.ESCOLHENDO_PONTOS, 'Transição válida: REPOUSO -> ESCOLHENDO_PONTOS');
+
+testStore.transitionTo(APP_STATES.REPOUSO);
+assert(testStore.getState().appState === APP_STATES.REPOUSO, 'Transição válida: ESCOLHENDO_PONTOS -> REPOUSO');
+
+testStore.transitionTo(APP_STATES.PLANEJANDO);
+testStore.transitionTo(APP_STATES.ESCOLHENDO_PONTOS);
+assert(testStore.getState().appState === APP_STATES.ESCOLHENDO_PONTOS, 'Transição válida: PLANEJANDO -> ESCOLHENDO_PONTOS');
 
 console.log(`\n====================================================`);
 console.log(`Resultado: ${passed} passaram, ${failed} falharam.`);

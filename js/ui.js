@@ -16,8 +16,18 @@ export const UI = {
   btnMoreMenu: document.getElementById('btn-more-menu'),
   popoverMoreMenu: document.getElementById('popover-more-menu'),
 
-  // Botão Recenter Flutuante
+  // Botões Flutuantes à Direita
   btnRecenter: document.getElementById('btn-recenter'),
+  btnPickPoints: document.getElementById('btn-pick-points'),
+
+  // Barra de Modo Escolher Pontos
+  pickPointsBar: document.getElementById('pick-points-bar'),
+  pickTabStart: document.getElementById('pick-tab-start'),
+  pickTabEnd: document.getElementById('pick-tab-end'),
+  pickInstructionText: document.getElementById('pick-instruction-text'),
+  btnPickUseGps: document.getElementById('btn-pick-use-gps'),
+  btnPickRemoveEnd: document.getElementById('btn-pick-remove-end'),
+  btnPickFinish: document.getElementById('btn-pick-finish'),
 
   // Cartão de Estatísticas (3 colunas)
   statsCard: document.getElementById('stats-card'),
@@ -43,6 +53,7 @@ export const UI = {
   bottomDock: document.getElementById('bottom-dock'),
   dockBtnLoop: document.getElementById('dock-btn-loop'),
   dockBtnStart: document.getElementById('dock-btn-start'),
+  startBtnLabel: document.getElementById('start-btn-label'),
   dockBtnDraw: document.getElementById('dock-btn-draw'),
 
   // Bottom Sheet de Rota Loop
@@ -53,8 +64,12 @@ export const UI = {
   btnCompactExpand: document.getElementById('btn-compact-expand'),
   btnCloseSheet: document.getElementById('btn-close-sheet'),
 
-  // Ponto de Partida e Formulário de Distância
+  // Ponto de Partida, Chegada e Formulário de Distância
   startCoordsBadge: document.getElementById('start-coords-badge'),
+  endPointIndicator: document.getElementById('end-point-indicator'),
+  endCoordsBadge: document.getElementById('end-coords-badge'),
+  pointToPointBanner: document.getElementById('point-to-point-banner'),
+  distanceSelectorCard: document.getElementById('distance-selector-card'),
   inputDistance: document.getElementById('input-distance'),
   btnDistMinus: document.getElementById('btn-dist-minus'),
   btnDistPlus: document.getElementById('btn-dist-plus'),
@@ -65,6 +80,7 @@ export const UI = {
   btnGenerateRoute: document.getElementById('btn-generate-route'),
   btnGenerateText: document.getElementById('btn-generate-text'),
   btnRegenerateRoute: document.getElementById('btn-regenerate-route'),
+  btnClearRoute: document.getElementById('btn-clear-route'),
 
   // Cards de Estado do Sheet
   loadingCard: document.getElementById('loading-state'),
@@ -163,6 +179,170 @@ export const UI = {
   },
 
   /**
+   * Atualiza a exibição do ponto de chegada
+   * @param {number|null} lat 
+   * @param {number|null} lng 
+   */
+  setEndCoordsDisplay(lat, lng) {
+    if (!this.endPointIndicator || !this.endCoordsBadge) return;
+    if (lat !== null && lng !== null) {
+      this.endCoordsBadge.textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+      this.endPointIndicator.hidden = false;
+    } else {
+      this.endPointIndicator.hidden = true;
+    }
+  },
+
+  /**
+   * Atualiza o estado visual do botão Iniciar (Aguardando GPS ou Pronto)
+   * @param {boolean} isWaiting 
+   */
+  setStartButtonWaiting(isWaiting) {
+    if (!this.dockBtnStart) return;
+    if (isWaiting) {
+      this.dockBtnStart.classList.add('waiting-gps');
+      if (this.startBtnLabel) this.startBtnLabel.textContent = 'Aguardando GPS…';
+    } else {
+      this.dockBtnStart.classList.remove('waiting-gps');
+      if (this.startBtnLabel) this.startBtnLabel.textContent = 'Iniciar';
+    }
+  },
+
+  /**
+   * Alterna modo Escolher Pontos na interface
+   * @param {boolean} isActive 
+   * @param {'start'|'end'} [activeTab='start'] 
+   * @param {boolean} [hasEndPoint=false] 
+   */
+  setChoosePointsMode(isActive, activeTab = 'start', hasEndPoint = false) {
+    if (this.pickPointsBar) {
+      this.pickPointsBar.hidden = !isActive;
+    }
+    if (this.btnPickPoints) {
+      this.btnPickPoints.classList.toggle('active', isActive);
+    }
+    if (this.topBar) {
+      this.topBar.hidden = isActive;
+    }
+    if (this.pickTabStart && this.pickTabEnd) {
+      this.pickTabStart.classList.toggle('active', activeTab === 'start');
+      this.pickTabStart.setAttribute('aria-selected', activeTab === 'start' ? 'true' : 'false');
+      this.pickTabEnd.classList.toggle('active', activeTab === 'end');
+      this.pickTabEnd.setAttribute('aria-selected', activeTab === 'end' ? 'true' : 'false');
+    }
+    if (this.pickInstructionText) {
+      this.pickInstructionText.textContent = activeTab === 'start'
+        ? 'Toque no mapa para definir o Início'
+        : 'Toque no mapa para definir o Fim';
+    }
+    if (this.btnPickRemoveEnd) {
+      this.btnPickRemoveEnd.disabled = !hasEndPoint;
+    }
+  },
+
+  /**
+   * Popula o cartão de resultado de rota PONTO A PONTO (A → B)
+   * @param {object} route 
+   */
+  populatePointToPointResultCard(route) {
+    this.metricActualDistance.textContent = formatDistance(route.distanceMeters);
+    this.metricRequestedDistance.textContent = '— (A → B)';
+    this.metricDiff.textContent = 'Caminho real';
+
+    const minutes = route.durationSeconds
+      ? route.durationSeconds / 60
+      : (route.distanceMeters / 1000) * CONFIG.ESTIMATED_PACE_MIN_PER_KM;
+    this.metricDuration.textContent = `~${formatDuration(minutes)}`;
+
+    if (this.metricOverlap) {
+      this.metricOverlap.textContent = '0%';
+    }
+
+    this.toleranceBadge.className = 'badge badge-accent';
+    this.toleranceBadge.textContent = '✓ Rota Ponto a Ponto (A → B)';
+
+    this.routeWarningBanner.hidden = true;
+
+    const actualKmFormatted = (route.distanceMeters / 1000).toFixed(2).replace('.', ',');
+    if (this.compactSummaryText) {
+      this.compactSummaryText.textContent = `${actualKmFormatted} km · Ponto a ponto (A → B) · ~${formatDuration(minutes)}`;
+    }
+
+    if (this.pointToPointBanner) {
+      this.pointToPointBanner.hidden = false;
+    }
+    if (this.distanceSelectorCard) {
+      this.distanceSelectorCard.hidden = true;
+    }
+
+    this.resultCard.hidden = false;
+    this.btnRegenerateRoute.hidden = true;
+    if (this.btnClearRoute) {
+      this.btnClearRoute.hidden = false;
+    }
+    this.loadingCard.hidden = true;
+    this.errorCard.hidden = true;
+  },
+
+  /**
+   * Popula o cartão de resultado da rota no sheet
+   * @param {object} route 
+   */
+  populateResultCard(route) {
+    const tol = route.tolerance;
+    const sign = tol.differenceMeters >= 0 ? '+' : '';
+
+    this.metricActualDistance.textContent = formatDistance(route.distanceMeters);
+    this.metricRequestedDistance.textContent = `${(route.requestedMeters / 1000).toFixed(2)} km`;
+    this.metricDiff.textContent = `${sign}${tol.differenceKm} km (${sign}${tol.diffPercent}%)`;
+
+    const minutes = (route.distanceMeters / 1000) * CONFIG.ESTIMATED_PACE_MIN_PER_KM;
+    this.metricDuration.textContent = `~${formatDuration(minutes)}`;
+
+    const overlapPct = route.quality ? Math.round(route.quality.overlapFraction * 100) : 0;
+    if (this.metricOverlap) {
+      this.metricOverlap.textContent = `${overlapPct}%`;
+    }
+
+    if (tol.isWithinTolerance) {
+      this.toleranceBadge.className = 'badge badge-success';
+      this.toleranceBadge.textContent = `✓ Dentro da tolerância (±${CONFIG.DEFAULT_TOLERANCE_PERCENT}%)`;
+    } else {
+      this.toleranceBadge.className = 'badge badge-warning';
+      this.toleranceBadge.textContent = `⚠ Fora da tolerância (${sign}${tol.diffPercent}%)`;
+    }
+
+    if (route.warning) {
+      this.routeWarningText.textContent = route.warning;
+      this.routeWarningBanner.hidden = false;
+    } else {
+      this.routeWarningBanner.hidden = true;
+    }
+
+    // Atualiza também o resumo compacto
+    const actualKmFormatted = (route.distanceMeters / 1000).toFixed(2).replace('.', ',');
+    const diffPctFormatted = `${sign}${tol.diffPercent}%`;
+    if (this.compactSummaryText) {
+      this.compactSummaryText.textContent = `${actualKmFormatted} km · ${diffPctFormatted} · ${overlapPct}% repetido`;
+    }
+
+    if (this.pointToPointBanner) {
+      this.pointToPointBanner.hidden = true;
+    }
+    if (this.distanceSelectorCard) {
+      this.distanceSelectorCard.hidden = false;
+    }
+
+    this.resultCard.hidden = false;
+    this.btnRegenerateRoute.hidden = false;
+    if (this.btnClearRoute) {
+      this.btnClearRoute.hidden = false;
+    }
+    this.loadingCard.hidden = true;
+    this.errorCard.hidden = true;
+  },
+
+  /**
    * Valida o campo de distância
    */
   validateDistance() {
@@ -223,53 +403,7 @@ export const UI = {
     });
   },
 
-  /**
-   * Popula o cartão de resultado da rota no sheet
-   * @param {object} route 
-   */
-  populateResultCard(route) {
-    const tol = route.tolerance;
-    const sign = tol.differenceMeters >= 0 ? '+' : '';
 
-    this.metricActualDistance.textContent = formatDistance(route.distanceMeters);
-    this.metricRequestedDistance.textContent = `${(route.requestedMeters / 1000).toFixed(2)} km`;
-    this.metricDiff.textContent = `${sign}${tol.differenceKm} km (${sign}${tol.diffPercent}%)`;
-
-    const minutes = (route.distanceMeters / 1000) * CONFIG.ESTIMATED_PACE_MIN_PER_KM;
-    this.metricDuration.textContent = `~${formatDuration(minutes)}`;
-
-    const overlapPct = route.quality ? Math.round(route.quality.overlapFraction * 100) : 0;
-    if (this.metricOverlap) {
-      this.metricOverlap.textContent = `${overlapPct}%`;
-    }
-
-    if (tol.isWithinTolerance) {
-      this.toleranceBadge.className = 'badge badge-success';
-      this.toleranceBadge.textContent = `✓ Dentro da tolerância (±${CONFIG.DEFAULT_TOLERANCE_PERCENT}%)`;
-    } else {
-      this.toleranceBadge.className = 'badge badge-warning';
-      this.toleranceBadge.textContent = `⚠ Fora da tolerância (${sign}${tol.diffPercent}%)`;
-    }
-
-    if (route.warning) {
-      this.routeWarningText.textContent = route.warning;
-      this.routeWarningBanner.hidden = false;
-    } else {
-      this.routeWarningBanner.hidden = true;
-    }
-
-    // Atualiza também o resumo compacto
-    const actualKmFormatted = (route.distanceMeters / 1000).toFixed(2).replace('.', ',');
-    const diffPctFormatted = `${sign}${tol.diffPercent}%`;
-    if (this.compactSummaryText) {
-      this.compactSummaryText.textContent = `${actualKmFormatted} km · ${diffPctFormatted} · ${overlapPct}% repetido`;
-    }
-
-    this.resultCard.hidden = false;
-    this.btnRegenerateRoute.hidden = false;
-    this.loadingCard.hidden = true;
-    this.errorCard.hidden = true;
-  },
 
   setLoadingState(isLoading, title = 'Calculando circuito…', stepText = 'Consultando malha viária…', attempt = 1, maxAttempts = 6) {
     if (isLoading) {

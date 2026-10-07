@@ -12,6 +12,7 @@ export const APP_STATES = {
   GERANDO: 'gerando',
   ROTA_PRONTA: 'rotaPronta',
   DESENHANDO: 'desenhando',
+  ESCOLHENDO_PONTOS: 'escolhendoPontos',
   CORRENDO: 'correndo',
   PAUSADO: 'pausado',
   FINALIZADO: 'finalizado'
@@ -23,12 +24,14 @@ const VALID_TRANSITIONS = {
     APP_STATES.REPOUSO,
     APP_STATES.PLANEJANDO,
     APP_STATES.DESENHANDO,
+    APP_STATES.ESCOLHENDO_PONTOS,
     APP_STATES.ROTA_PRONTA
   ],
   [APP_STATES.REPOUSO]: [
     APP_STATES.LOCALIZANDO,
     APP_STATES.PLANEJANDO,
     APP_STATES.DESENHANDO,
+    APP_STATES.ESCOLHENDO_PONTOS,
     APP_STATES.CORRENDO,
     APP_STATES.ROTA_PRONTA
   ],
@@ -36,6 +39,7 @@ const VALID_TRANSITIONS = {
     APP_STATES.GERANDO,
     APP_STATES.REPOUSO,
     APP_STATES.DESENHANDO,
+    APP_STATES.ESCOLHENDO_PONTOS,
     APP_STATES.CORRENDO,
     APP_STATES.LOCALIZANDO,
     APP_STATES.ROTA_PRONTA
@@ -50,12 +54,20 @@ const VALID_TRANSITIONS = {
     APP_STATES.GERANDO,
     APP_STATES.REPOUSO,
     APP_STATES.DESENHANDO,
+    APP_STATES.ESCOLHENDO_PONTOS,
     APP_STATES.CORRENDO,
     APP_STATES.LOCALIZANDO
   ],
   [APP_STATES.DESENHANDO]: [
     APP_STATES.REPOUSO,
     APP_STATES.PLANEJANDO,
+    APP_STATES.CORRENDO,
+    APP_STATES.LOCALIZANDO
+  ],
+  [APP_STATES.ESCOLHENDO_PONTOS]: [
+    APP_STATES.REPOUSO,
+    APP_STATES.PLANEJANDO,
+    APP_STATES.ROTA_PRONTA,
     APP_STATES.CORRENDO,
     APP_STATES.LOCALIZANDO
   ],
@@ -79,6 +91,8 @@ const initialState = {
   gpsAccuracy: null,
   userLocation: null,    // { lat, lng }
   startPoint: null,      // { lat, lng }
+  endPoint: null,        // { lat, lng }
+  activePickTarget: 'start', // 'start' | 'end'
   targetKm: 5,
   routeData: null,
   drawPoints: [],
@@ -92,7 +106,7 @@ const initialState = {
   activeGeneration: null
 };
 
-class Store {
+export class Store {
   constructor() {
     this._state = { ...initialState };
     this._listeners = new Set();
