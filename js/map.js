@@ -1,21 +1,27 @@
 /**
  * RunLoop — Módulo de Gerenciamento do Mapa (Leaflet)
  * 
- * Cria o mapa, camadas de satélite/ruas, marcadores personalizados em SVG,
- * renderização de traçados e tratamento de eventos de clique.
+ * Mapa em tela cheia mobile-first, tema escuro via filtro CSS (config.js),
+ * ponto 'você' em azul com pulso e círculo de precisão, centralização inteligente
+ * considerando a área útil da tela, traçado live de corrida e casing elegante nas rotas.
  */
 
 import { CONFIG } from './config.js';
 
 let mapInstance = null;
 let startMarker = null;
-let routePolylineGlow = null;
+let userMarker = null;
+let accuracyCircle = null;
+let routePolylineCasing = null;
 let routePolylineMain = null;
 let waypointMarkers = [];
 let manualMarkers = [];
 let manualPolyline = null;
 
-// Callbacks registrados para cliques no mapa
+let liveRunCasing = null;
+let liveRunMain = null;
+
+// Callback para cliques no mapa
 let onMapClickCallback = null;
 
 /**
@@ -44,6 +50,22 @@ function createStartPinIcon(label = 'Início') {
 }
 
 /**
+ * Cria o ícone do ponto azul 'você' com pulso suave
+ * @returns {L.DivIcon}
+ */
+function createUserLocationIcon() {
+  return L.divIcon({
+    className: 'runloop-user-marker-wrap',
+    html: `
+      <div class="user-pulse-ring"></div>
+      <div class="user-location-dot"></div>
+    `,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14]
+  });
+}
+
+/**
  * Cria ícone discreto para waypoints intermediários
  * @param {number} index 
  * @returns {L.DivIcon}
@@ -61,7 +83,7 @@ let currentStartPoint = null;
 
 /**
  * Inicializa a instância do Leaflet
- * @param {string} containerId - ID do elemento DOM do mapa
+ * @param {string} containerId - ID do container do mapa
  * @param {object} initialView - { lat, lng, zoom }
  * @returns {L.Map}
  */
@@ -70,20 +92,27 @@ export function initMap(containerId = 'map', initialView = CONFIG.DEFAULT_MAP_VI
     mapInstance.remove();
   }
 
-  // Cria mapa com visão neutra inicial (sem marcador e sem assumir cidade do usuário)
   mapInstance = L.map(containerId, {
-    zoomControl: false, // reposicionaremos para uma área mais ergonômica
+    zoomControl: false, // Controle customizado / desktop
     attributionControl: true
   }).setView([initialView.lat, initialView.lng], initialView.zoom);
 
-  // Adiciona controle de zoom no canto superior direito para não colidir com o painel
+  // Controle de zoom exclusivo para desktop com mouse (pointer: fine)
   L.control.zoom({ position: 'topright' }).addTo(mapInstance);
 
-  // Camada padrão do OpenStreetMap com atribuição visível obrigatória
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  // Camada padrão do OpenStreetMap
+  const tileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> colaboradores'
   }).addTo(mapInstance);
+
+  // Aplica o filtro de tema escuro configurado em config.js no tile pane
+  if (CONFIG.MAP_DARK_FILTER) {
+    const tilePane = mapInstance.getPane('tilePane');
+    if (tilePane) {
+      tilePane.style.filter = CONFIG.MAP_DARK_FILTER;
+    }
+  }
 
   // Escuta cliques no mapa
   mapInstance.on('click', (e) => {
@@ -98,12 +127,89 @@ export function initMap(containerId = 'map', initialView = CONFIG.DEFAULT_MAP_VI
   return mapInstance;
 }
 
+export function getMapInstance() {
+  return mapInstance;
+}
+
 /**
  * Registra o handler para cliques no mapa
  * @param {function} callback - ({lat, lng}) => void
  */
 export function setMapClickHandler(callback) {
   onMapClickCallback = callback;
+}
+
+/**
+ * Atualiza o marcador do ponto 'você' e círculo de precisão
+ * @param {number} lat 
+ * @param {number} lng 
+ * @param {number} [accuracy=10] 
+ */
+export function updateUserMarker(lat, lng, accuracy = 10) {
+  if (!mapInstance) return;
+
+  const latlng = [lat, lng];
+
+  if (!userMarker) {
+    userMarker = L.marker(latlng, {
+      icon: createUserLocationIcon(),
+      interactive: false,
+      zIndexOffset: 1000
+    }).addTo(mapInstance);
+  } else {
+    userMarker.setLatLng(latlng);
+  }
+
+  if (accuracy && accuracy > 0) {
+    if (!accuracyCircle) {
+      accuracyCircle = L.circle(latlng, {
+        radius: accuracy,
+        color: '#06b6d4',
+        weight: 1,
+        opacity: 0.4,
+        fillColor: '#06b6d4',
+        fillOpacity: 0.08,
+        interactive: false
+      }).addTo(mapInstance);
+    } else {
+      accuracyCircle.setLatLng(latlng);
+      accuracyCircle.setRadius(accuracy);
+    }
+  }
+}
+
+/**
+ * Centraliza suavemente no usuário com compensação de offset vertical
+ * (garante que o ponto fique na metade superior livre da tela, acima do dock/sheet)
+ * @param {number} lat 
+ * @param {number} lng 
+ * @param {object} [options]
+ * @param {number} [options.zoom=16]
+ * @param {number} [options.duration=1.6]
+ * @param {number} [options.bottomOffsetPx=140]
+ */
+export function flyToUserLocation(lat, lng, options = {}) {
+  if (!mapInstance) return;
+
+  const zoom = options.zoom || CONFIG.TRACKER.FLY_TO_ZOOM || 16;
+  const duration = options.duration || CONFIG.TRACKER.FLY_TO_DURATION || 1.6;
+  const bottomOffsetPx = options.bottomOffsetPx ?? (window.innerWidth < 900 ? 120 : 0);
+
+  // Calcula coordenadas offset projetadas para manter o ponto centralizado na área livre
+  const centerPoint = mapInstance.project([lat, lng], zoom);
+  const targetPoint = centerPoint.add([0, bottomOffsetPx / 2]);
+  const targetLatLng = mapInstance.unproject(targetPoint, zoom);
+
+  const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  if (prefersReducedMotion) {
+    mapInstance.setView(targetLatLng, zoom);
+  } else {
+    mapInstance.flyTo(targetLatLng, zoom, {
+      duration,
+      easeLinearity: 0.25
+    });
+  }
 }
 
 /**
@@ -123,11 +229,10 @@ export function setStartPoint(lat, lng, pan = true) {
 
   if (!startMarker) {
     startMarker = L.marker(latlng, {
-      icon: createStartPinIcon('Início / Fim'),
+      icon: createStartPinIcon('Início'),
       draggable: true
     }).addTo(mapInstance);
 
-    // Permitir arrastar o marcador para reposicionar
     startMarker.on('dragend', (e) => {
       const pos = e.target.getLatLng();
       const updatedLat = Number(pos.lat.toFixed(6));
@@ -146,18 +251,10 @@ export function setStartPoint(lat, lng, pan = true) {
   }
 
   if (pan) {
-    if (mapInstance.getZoom() < 13) {
-      mapInstance.setView(latlng, 15, { animate: true });
-    } else {
-      mapInstance.panTo(latlng, { animate: true, duration: 0.6 });
-    }
+    flyToUserLocation(latNum, lngNum, { zoom: 16, bottomOffsetPx: 120 });
   }
 }
 
-/**
- * Retorna as coordenadas atuais do ponto de partida ou null se não definido
- * @returns {{lat: number, lng: number}|null}
- */
 export function getStartPoint() {
   if (currentStartPoint) {
     return { ...currentStartPoint };
@@ -165,46 +262,42 @@ export function getStartPoint() {
   return null;
 }
 
-/**
- * Verifica se já existe um ponto de partida selecionado
- * @returns {boolean}
- */
 export function hasStartPoint() {
   return currentStartPoint !== null;
 }
 
 /**
- * Renderiza uma rota circular automática no mapa
+ * Renderiza uma rota circular automática no mapa com contorno (casing) esportivo
  * @param {object} routeData 
+ * @param {object} [paddingOptions] - { top: number, bottom: number }
  */
-export function renderRoute(routeData) {
+export function renderRoute(routeData, paddingOptions = {}) {
   if (!mapInstance || !routeData || !routeData.coordinates) return;
 
   clearRouteLayers();
 
   const coords = routeData.coordinates;
 
-  // Linha de fundo / brilho para contraste impecável em qualquer mapa
-  routePolylineGlow = L.polyline(coords, {
-    color: '#0284c7', // azul céu de contraste
+  // 1. Contorno externo escuro/branco (casing de alta legibilidade)
+  routePolylineCasing = L.polyline(coords, {
+    color: '#0b0f19',
     weight: 9,
-    opacity: 0.35,
+    opacity: 0.85,
     lineCap: 'round',
     lineJoin: 'round'
   }).addTo(mapInstance);
 
-  // Linha principal com cor vibrante esportiva (coral/laranja atlético moderno)
+  // 2. Traço principal coral atlético
   routePolylineMain = L.polyline(coords, {
     color: '#ff4d2e',
     weight: 5,
-    opacity: 0.95,
+    opacity: 1,
     lineCap: 'round',
     lineJoin: 'round'
   }).addTo(mapInstance);
 
-  // Adiciona marcadores discretos para os waypoints intermediários para enriquecer a visualização
+  // Waypoints intermediários
   if (Array.isArray(routeData.waypoints) && routeData.waypoints.length > 2) {
-    // Primeiro e último são o ponto inicial
     for (let i = 1; i < routeData.waypoints.length - 1; i++) {
       const wp = routeData.waypoints[i];
       const marker = L.marker([wp.lat, wp.lng], {
@@ -215,17 +308,77 @@ export function renderRoute(routeData) {
     }
   }
 
-  // Atualiza posição do marcador de início caso tenha sofrido snap
+  // Atualiza marcador de início
   if (routeData.start) {
     setStartPoint(routeData.start.lat, routeData.start.lng, false);
   }
 
-  // Ajusta o zoom para enquadrar perfeitamente todo o circuito
-  mapInstance.fitBounds(routePolylineMain.getBounds(), {
-    padding: [45, 45],
+  // Enquadra a rota considerando a barra superior e o bottom sheet compacto
+  fitRouteBounds(routePolylineMain.getBounds(), paddingOptions);
+}
+
+/**
+ * Enquadra os limites da rota considerando as áreas ocupadas da interface
+ * @param {L.LatLngBounds} bounds 
+ * @param {object} [padding] - { top, bottom }
+ */
+export function fitRouteBounds(bounds, padding = {}) {
+  if (!mapInstance || !bounds) return;
+
+  const isMobile = window.innerWidth < 900;
+  const topPad = padding.top ?? (isMobile ? 85 : 40);
+  const bottomPad = padding.bottom ?? (isMobile ? 220 : 100);
+
+  mapInstance.fitBounds(bounds, {
+    paddingTopLeft: [28, topPad],
+    paddingBottomRight: [28, bottomPad],
     maxZoom: 16,
-    animate: true
+    animate: !window.matchMedia('(prefers-reduced-motion: reduce)').matches
   });
+}
+
+/**
+ * Renderiza o traçado da corrida em andamento (cor ciano contrastante com casing)
+ * @param {Array<[number, number]>} coordinates 
+ */
+export function updateLiveRunTrail(coordinates) {
+  if (!mapInstance || !coordinates || coordinates.length === 0) return;
+
+  if (!liveRunCasing) {
+    liveRunCasing = L.polyline(coordinates, {
+      color: '#0b0f19',
+      weight: 8,
+      opacity: 0.9,
+      lineCap: 'round',
+      lineJoin: 'round'
+    }).addTo(mapInstance);
+  } else {
+    liveRunCasing.setLatLngs(coordinates);
+  }
+
+  if (!liveRunMain) {
+    liveRunMain = L.polyline(coordinates, {
+      color: '#06b6d4', // Ciano elétrico vivo para diferenciar da rota coral planejada
+      weight: 5,
+      opacity: 1,
+      lineCap: 'round',
+      lineJoin: 'round'
+    }).addTo(mapInstance);
+  } else {
+    liveRunMain.setLatLngs(coordinates);
+  }
+}
+
+export function clearLiveRunTrail() {
+  if (!mapInstance) return;
+  if (liveRunCasing) {
+    mapInstance.removeLayer(liveRunCasing);
+    liveRunCasing = null;
+  }
+  if (liveRunMain) {
+    mapInstance.removeLayer(liveRunMain);
+    liveRunMain = null;
+  }
 }
 
 /**
@@ -236,10 +389,8 @@ export function renderManualDraw(pointsList) {
   if (!mapInstance) return;
 
   clearManualLayers();
-
   if (!pointsList || pointsList.length === 0) return;
 
-  // Marcadores dos pontos desenhados
   pointsList.forEach((pt, idx) => {
     const isFirst = idx === 0;
     const isLast = idx === pointsList.length - 1 && pointsList.length > 1;
@@ -262,73 +413,45 @@ export function renderManualDraw(pointsList) {
     manualMarkers.push(marker);
   });
 
-  // Polilinha reta entre os pontos manuais
   if (pointsList.length >= 2) {
     manualPolyline = L.polyline(pointsList, {
-      color: '#8b5cf6', // Roxo vibrante para diferenciar da rota automática
-      dashArray: '6, 8', // Linha tracejada indicando reta/estimativa
+      color: '#a855f7',
+      dashArray: '6, 8',
       weight: 4,
-      opacity: 0.9,
+      opacity: 0.95,
       lineCap: 'round',
       lineJoin: 'round'
     }).addTo(mapInstance);
   }
 }
 
-/**
- * Limpa camadas da rota automática gerada
- */
 export function clearRouteLayers() {
   if (!mapInstance) return;
 
-  if (routePolylineGlow) {
-    mapInstance.removeLayer(routePolylineGlow);
-    routePolylineGlow = null;
+  if (routePolylineCasing) {
+    mapInstance.removeLayer(routePolylineCasing);
+    routePolylineCasing = null;
   }
-
   if (routePolylineMain) {
     mapInstance.removeLayer(routePolylineMain);
     routePolylineMain = null;
   }
-
   waypointMarkers.forEach(m => mapInstance.removeLayer(m));
   waypointMarkers = [];
 }
 
-/**
- * Limpa camadas do desenho manual
- */
 export function clearManualLayers() {
   if (!mapInstance) return;
-
   manualMarkers.forEach(m => mapInstance.removeLayer(m));
   manualMarkers = [];
-
   if (manualPolyline) {
     mapInstance.removeLayer(manualPolyline);
     manualPolyline = null;
   }
 }
 
-/**
- * Reseta todas as rotas e marcadores adicionais mantendo o ponto de início
- */
 export function clearAllRoutes() {
   clearRouteLayers();
   clearManualLayers();
-}
-
-/**
- * Centraliza o mapa nas coordenadas informadas
- * @param {number} lat 
- * @param {number} lng 
- * @param {number} [zoom] 
- */
-export function setCenter(lat, lng, zoom) {
-  if (!mapInstance) return;
-  if (zoom) {
-    mapInstance.setView([lat, lng], zoom);
-  } else {
-    mapInstance.panTo([lat, lng]);
-  }
+  clearLiveRunTrail();
 }

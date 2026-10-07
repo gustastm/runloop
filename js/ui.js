@@ -1,37 +1,72 @@
 /**
  * RunLoop — Módulo de Manipulação da Interface do Usuário (UI)
  * 
- * Gerencia estados de tela (loading, erro, resultado), validação de formulários,
- * acessibilidade e atualização segura do DOM (evitando innerHTML com dados externos).
+ * Gerencia os componentes flutuantes, cards, bottom sheet, modais, toasts
+ * e validação do formulário, sempre usando textContent para máxima segurança.
  */
 
 import { CONFIG } from './config.js';
 import { formatDistance, formatDuration } from './geo.js';
 
 export const UI = {
-  // Elementos das Abas e Modos
-  tabAuto: document.getElementById('tab-auto-mode'),
-  tabDraw: document.getElementById('tab-draw-mode'),
-  sectionAuto: document.getElementById('section-auto-mode'),
-  sectionDraw: document.getElementById('section-draw-mode'),
+  // Barra Superior e GPS
+  topBar: document.querySelector('.top-bar'),
+  chipGpsStatus: document.getElementById('chip-gps-status'),
+  gpsStatusText: document.getElementById('gps-status-text'),
+  btnMoreMenu: document.getElementById('btn-more-menu'),
+  popoverMoreMenu: document.getElementById('popover-more-menu'),
 
-  // Ponto de Partida
+  // Botão Recenter Flutuante
+  btnRecenter: document.getElementById('btn-recenter'),
+
+  // Cartão de Estatísticas (3 colunas)
+  statsCard: document.getElementById('stats-card'),
+  statTime: document.getElementById('stat-time'),
+  statPace: document.getElementById('stat-pace'),
+  statDistance: document.getElementById('stat-distance'),
+
+  // Barra de Desenho Manual
+  drawModeBar: document.getElementById('draw-mode-bar'),
+  drawDistanceValue: document.getElementById('draw-distance-value'),
+  btnDrawUndo: document.getElementById('btn-draw-undo'),
+  btnDrawClear: document.getElementById('btn-draw-clear'),
+  btnDrawFinish: document.getElementById('btn-draw-finish'),
+
+  // Barra de Corrida Ativa
+  runActiveBar: document.getElementById('run-active-bar'),
+  runWakeLockNotice: document.getElementById('run-wake-lock-notice'),
+  btnRunPauseResume: document.getElementById('btn-run-pause-resume'),
+  btnRunPauseText: document.getElementById('btn-run-pause-text'),
+  btnRunFinish: document.getElementById('btn-run-finish'),
+
+  // Barra Inferior (Dock Flutuante)
+  bottomDock: document.getElementById('bottom-dock'),
+  dockBtnLoop: document.getElementById('dock-btn-loop'),
+  dockBtnStart: document.getElementById('dock-btn-start'),
+  dockBtnDraw: document.getElementById('dock-btn-draw'),
+
+  // Bottom Sheet de Rota Loop
+  routeSheet: document.getElementById('route-sheet'),
+  sheetHandleZone: document.getElementById('sheet-handle-zone'),
+  sheetCompactSummary: document.getElementById('sheet-compact-summary'),
+  compactSummaryText: document.getElementById('compact-summary-text'),
+  btnCompactExpand: document.getElementById('btn-compact-expand'),
+  btnCloseSheet: document.getElementById('btn-close-sheet'),
+
+  // Ponto de Partida e Formulário de Distância
   startCoordsBadge: document.getElementById('start-coords-badge'),
-  btnUseLocation: document.getElementById('btn-use-location'),
-
-  // Campo de Distância e Presets
   inputDistance: document.getElementById('input-distance'),
   btnDistMinus: document.getElementById('btn-dist-minus'),
   btnDistPlus: document.getElementById('btn-dist-plus'),
   distanceErrorMsg: document.getElementById('distance-error-msg'),
   presetChips: document.querySelectorAll('.preset-chip'),
 
-  // Botões de Ação
+  // Ações de Geração de Rota
   btnGenerateRoute: document.getElementById('btn-generate-route'),
   btnGenerateText: document.getElementById('btn-generate-text'),
   btnRegenerateRoute: document.getElementById('btn-regenerate-route'),
 
-  // Cards de Estado
+  // Cards de Estado do Sheet
   loadingCard: document.getElementById('loading-state'),
   loadingTitle: document.getElementById('loading-title'),
   loadingStepText: document.getElementById('loading-step-text'),
@@ -51,52 +86,93 @@ export const UI = {
   routeWarningBanner: document.getElementById('route-warning-banner'),
   routeWarningText: document.getElementById('route-warning-text'),
 
-  // Modo Desenho Manual
-  manualPointsBadge: document.getElementById('manual-points-count-badge'),
-  manualTotalDistance: document.getElementById('manual-total-distance'),
-  btnDrawUndo: document.getElementById('btn-draw-undo'),
-  btnDrawClear: document.getElementById('btn-draw-clear'),
+  // Modais
+  runSummaryModal: document.getElementById('run-summary-modal'),
+  summaryDistance: document.getElementById('summary-distance'),
+  summaryTime: document.getElementById('summary-time'),
+  summaryPace: document.getElementById('summary-pace'),
+  btnCloseSummary: document.getElementById('btn-close-summary'),
 
-  // Live region acessível
-  statusLiveRegion: document.getElementById('status-live-region'),
+  confirmFinishModal: document.getElementById('confirm-finish-modal'),
+  btnCancelFinish: document.getElementById('btn-cancel-finish'),
+  btnConfirmFinish: document.getElementById('btn-confirm-finish'),
+
+  // Toasts
+  toastContainer: document.getElementById('toast-container'),
 
   /**
-   * Anuncia mensagem para leitores de tela
+   * Exibe toast não-bloqueante na tela
    * @param {string} message 
+   * @param {number} [durationMs=4000]
    */
-  announce(message) {
-    if (this.statusLiveRegion) {
-      this.statusLiveRegion.textContent = message;
+  showToast(message, durationMs = 4000) {
+    if (!this.toastContainer) return;
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    this.toastContainer.appendChild(toast);
+
+    setTimeout(() => {
+      toast.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(-10px)';
+      setTimeout(() => {
+        if (toast.parentElement) toast.remove();
+      }, 350);
+    }, durationMs);
+  },
+
+  /**
+   * Atualiza o chip de GPS na barra superior
+   * @param {string} statusKey 
+   * @param {string} text 
+   */
+  setGpsStatus(statusKey, text) {
+    if (this.chipGpsStatus) {
+      this.chipGpsStatus.dataset.status = statusKey;
+    }
+    if (this.gpsStatusText) {
+      this.gpsStatusText.textContent = text;
     }
   },
 
   /**
-   * Atualiza o badge com as coordenadas do ponto de partida
+   * Atualiza as estatísticas do cartão principal
+   * @param {string} time - ex "12:34"
+   * @param {string} pace - ex "5:12"
+   * @param {string} distanceKm - ex "2,45"
+   */
+  updateStats(time = '00:00', pace = '--:--', distanceKm = '0,00') {
+    if (this.statTime) this.statTime.textContent = time;
+    if (this.statPace) this.statPace.textContent = pace;
+    if (this.statDistance) this.statDistance.textContent = distanceKm;
+  },
+
+  /**
+   * Atualiza a exibição do ponto de partida
    * @param {number|null} lat 
    * @param {number|null} lng 
    */
   setStartCoordsDisplay(lat, lng) {
-    if (this.startCoordsBadge) {
-      if (typeof lat === 'number' && typeof lng === 'number') {
-        this.startCoordsBadge.textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-      } else {
-        this.startCoordsBadge.textContent = 'Nenhum ponto selecionado';
-      }
+    if (!this.startCoordsBadge) return;
+    if (lat !== null && lng !== null) {
+      this.startCoordsBadge.textContent = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    } else {
+      this.startCoordsBadge.textContent = 'Toque no mapa para selecionar';
     }
   },
 
   /**
-   * Valida a distância informada pelo usuário
-   * @returns {{isValid: boolean, valueKm: number, errorMsg: string}}
+   * Valida o campo de distância
    */
   validateDistance() {
-    const rawVal = this.inputDistance.value ? this.inputDistance.value.trim() : '';
+    const rawVal = this.inputDistance.value.trim().replace(',', '.');
     const val = parseFloat(rawVal);
 
-    if (rawVal === '' || isNaN(val)) {
+    if (isNaN(val) || rawVal === '') {
       return {
         isValid: false,
-        valueKm: 0,
+        valueKm: CONFIG.DEFAULT_DISTANCE_KM,
         errorMsg: 'Por favor, informe um número válido de quilômetros.'
       };
     }
@@ -105,7 +181,7 @@ export const UI = {
       return {
         isValid: false,
         valueKm: val,
-        errorMsg: `A distância mínima para rota de corrida é ${CONFIG.MIN_DISTANCE_KM} km.`
+        errorMsg: `A distância mínima é ${CONFIG.MIN_DISTANCE_KM} km.`
       };
     }
 
@@ -113,7 +189,7 @@ export const UI = {
       return {
         isValid: false,
         valueKm: val,
-        errorMsg: `A distância máxima permitida no momento é ${CONFIG.MAX_DISTANCE_KM} km (maratona).`
+        errorMsg: `A distância máxima permitida é ${CONFIG.MAX_DISTANCE_KM} km.`
       };
     }
 
@@ -124,10 +200,6 @@ export const UI = {
     };
   },
 
-  /**
-   * Exibe ou limpa erro do campo de distância
-   * @param {string|null} message 
-   */
   showDistanceError(message) {
     if (message) {
       this.distanceErrorMsg.textContent = message;
@@ -140,10 +212,6 @@ export const UI = {
     }
   },
 
-  /**
-   * Atualiza a seleção visual dos chips de preset
-   * @param {number} kmValue 
-   */
   syncPresetChips(kmValue) {
     this.presetChips.forEach(chip => {
       const chipKm = parseFloat(chip.dataset.km);
@@ -156,140 +224,25 @@ export const UI = {
   },
 
   /**
-   * Alterna entre o modo Automático e Desenho Manual
-   * @param {'auto'|'draw'} mode 
-   */
-  setActiveMode(mode) {
-    const isAuto = mode === 'auto';
-
-    this.tabAuto.classList.toggle('active', isAuto);
-    this.tabAuto.setAttribute('aria-selected', isAuto ? 'true' : 'false');
-    this.sectionAuto.hidden = !isAuto;
-
-    this.tabDraw.classList.toggle('active', !isAuto);
-    this.tabDraw.setAttribute('aria-selected', !isAuto ? 'true' : 'false');
-    this.sectionDraw.hidden = isAuto;
-
-    this.announce(`Modo alterado para ${isAuto ? 'Rota Circular Automática' : 'Desenho Manual'}`);
-  },
-
-  /**
-   * Estado atual da aplicação
-   */
-  currentAppState: 'IDLE',
-
-  /**
-   * Define o estado global da interface garantindo exclusão mútua entre cards
-   * Estados possíveis: 'IDLE' | 'LOCATING' | 'GENERATING' | 'SUCCESS' | 'ERROR'
-   * @param {'IDLE'|'LOCATING'|'GENERATING'|'SUCCESS'|'ERROR'} state 
-   * @param {object} [data] 
-   */
-  setAppState(state, data = {}) {
-    this.currentAppState = state;
-
-    switch (state) {
-      case 'IDLE':
-        this.loadingCard.hidden = true;
-        this.errorCard.hidden = true;
-        this.btnGenerateRoute.disabled = false;
-        this.btnRegenerateRoute.disabled = false;
-        this.btnUseLocation.disabled = false;
-        this.inputDistance.disabled = false;
-        this.btnGenerateText.textContent = 'Gerar rota circular';
-        break;
-
-      case 'LOCATING':
-        this.loadingCard.hidden = true;
-        this.errorCard.hidden = true;
-        this.btnGenerateRoute.disabled = true;
-        this.btnRegenerateRoute.disabled = true;
-        this.btnUseLocation.disabled = true;
-        this.inputDistance.disabled = false;
-        this.announce('Obtendo sua localização geográfica...');
-        break;
-
-      case 'GENERATING':
-        this.loadingCard.hidden = false;
-        this.errorCard.hidden = true;
-        this.resultCard.hidden = true;
-        this.btnGenerateRoute.disabled = true;
-        this.btnRegenerateRoute.disabled = true;
-        this.btnUseLocation.disabled = true;
-        this.inputDistance.disabled = true;
-        this.btnGenerateText.textContent = 'Gerando...';
-
-        const title = data.title || 'Calculando circuito...';
-        const stepText = data.stepText || 'Consultando malha viária...';
-        const attempt = data.attempt || 1;
-        const maxAttempts = data.maxAttempts || CONFIG.MAX_ATTEMPTS;
-
-        this.loadingTitle.textContent = title;
-        this.loadingStepText.textContent = stepText;
-        const progressPercent = Math.min(100, Math.round((attempt / maxAttempts) * 100));
-        this.progressBarFill.style.width = `${progressPercent}%`;
-
-        this.announce(`${title} ${stepText}`);
-        break;
-
-      case 'SUCCESS':
-        this.loadingCard.hidden = true;
-        this.errorCard.hidden = true;
-        this.btnGenerateRoute.disabled = false;
-        this.btnRegenerateRoute.disabled = false;
-        this.btnUseLocation.disabled = false;
-        this.inputDistance.disabled = false;
-        this.btnGenerateText.textContent = 'Gerar rota circular';
-
-        if (data && data.tolerance) {
-          this._populateResultCard(data);
-          this.resultCard.hidden = false;
-          this.btnRegenerateRoute.hidden = false;
-        }
-        break;
-
-      case 'ERROR':
-        this.loadingCard.hidden = true;
-        this.errorCard.hidden = false;
-        this.resultCard.hidden = true;
-        this.btnGenerateRoute.disabled = false;
-        this.btnRegenerateRoute.disabled = false;
-        this.btnUseLocation.disabled = false;
-        this.inputDistance.disabled = false;
-        this.btnGenerateText.textContent = 'Gerar rota circular';
-
-        this.errorTitle.textContent = data.title || 'Não foi possível traçar a rota';
-        this.errorDesc.textContent = data.message || data.description || 'Tente selecionar outro ponto de partida no mapa.';
-        this.announce(`Erro: ${this.errorTitle.textContent}. ${this.errorDesc.textContent}`);
-        break;
-    }
-  },
-
-  /**
-   * Preenche as métricas do card de resultado
+   * Popula o cartão de resultado da rota no sheet
    * @param {object} route 
    */
-  _populateResultCard(route) {
+  populateResultCard(route) {
     const tol = route.tolerance;
+    const sign = tol.differenceMeters >= 0 ? '+' : '';
 
-    // Distâncias
     this.metricActualDistance.textContent = formatDistance(route.distanceMeters);
     this.metricRequestedDistance.textContent = `${(route.requestedMeters / 1000).toFixed(2)} km`;
-
-    // Diferença em km e %
-    const sign = tol.differenceMeters >= 0 ? '+' : '';
     this.metricDiff.textContent = `${sign}${tol.differenceKm} km (${sign}${tol.diffPercent}%)`;
 
-    // Duração estimada (minutos)
     const minutes = (route.distanceMeters / 1000) * CONFIG.ESTIMATED_PACE_MIN_PER_KM;
     this.metricDuration.textContent = `~${formatDuration(minutes)}`;
 
-    // Trechos repetidos
+    const overlapPct = route.quality ? Math.round(route.quality.overlapFraction * 100) : 0;
     if (this.metricOverlap) {
-      const overlapPct = route.quality ? Math.round(route.quality.overlapFraction * 100) : 0;
       this.metricOverlap.textContent = `${overlapPct}%`;
     }
 
-    // Badge de tolerância
     if (tol.isWithinTolerance) {
       this.toleranceBadge.className = 'badge badge-success';
       this.toleranceBadge.textContent = `✓ Dentro da tolerância (±${CONFIG.DEFAULT_TOLERANCE_PERCENT}%)`;
@@ -298,7 +251,6 @@ export const UI = {
       this.toleranceBadge.textContent = `⚠ Fora da tolerância (${sign}${tol.diffPercent}%)`;
     }
 
-    // Aviso extra (ex: ruas locais limitadas ou ida/volta)
     if (route.warning) {
       this.routeWarningText.textContent = route.warning;
       this.routeWarningBanner.hidden = false;
@@ -306,55 +258,52 @@ export const UI = {
       this.routeWarningBanner.hidden = true;
     }
 
-    this.announce(`Rota gerada: ${formatDistance(route.distanceMeters)}. ${tol.isWithinTolerance ? 'Dentro da tolerância.' : 'Fora da tolerância.'}`);
-  },
-
-  /**
-   * Ativa estado de carregamento durante a geração da rota (compatibilidade)
-   */
-  setLoading(isLoading, title = 'Calculando circuito...', stepText = 'Consultando malha viária...', attempt = 1, maxAttempts = 6) {
-    if (isLoading) {
-      this.setAppState('GENERATING', { title, stepText, attempt, maxAttempts });
-    } else {
-      if (this.currentAppState === 'GENERATING') {
-        this.setAppState('IDLE');
-      }
+    // Atualiza também o resumo compacto
+    const actualKmFormatted = (route.distanceMeters / 1000).toFixed(2).replace('.', ',');
+    const diffPctFormatted = `${sign}${tol.diffPercent}%`;
+    if (this.compactSummaryText) {
+      this.compactSummaryText.textContent = `${actualKmFormatted} km · ${diffPctFormatted} · ${overlapPct}% repetido`;
     }
-  },
 
-  /**
-   * Exibe mensagem de erro na geração da rota (compatibilidade)
-   */
-  showError(title, description) {
-    this.setAppState('ERROR', { title, message: description });
-  },
-
-  /**
-   * Oculta o card de erro
-   */
-  hideError() {
+    this.resultCard.hidden = false;
+    this.btnRegenerateRoute.hidden = false;
+    this.loadingCard.hidden = true;
     this.errorCard.hidden = true;
-    if (this.currentAppState === 'ERROR') {
-      this.currentAppState = 'IDLE';
+  },
+
+  setLoadingState(isLoading, title = 'Calculando circuito…', stepText = 'Consultando malha viária…', attempt = 1, maxAttempts = 6) {
+    if (isLoading) {
+      this.loadingCard.hidden = false;
+      this.errorCard.hidden = true;
+      this.resultCard.hidden = true;
+      this.btnGenerateRoute.disabled = true;
+      this.btnRegenerateRoute.disabled = true;
+      this.inputDistance.disabled = true;
+      this.btnGenerateText.textContent = 'Gerando…';
+
+      this.loadingTitle.textContent = title;
+      this.loadingStepText.textContent = stepText;
+      const progressPercent = Math.min(100, Math.round((attempt / maxAttempts) * 100));
+      this.progressBarFill.style.width = `${progressPercent}%`;
+    } else {
+      this.loadingCard.hidden = true;
+      this.btnGenerateRoute.disabled = false;
+      this.btnRegenerateRoute.disabled = false;
+      this.inputDistance.disabled = false;
+      this.btnGenerateText.textContent = 'Gerar rota loop';
     }
   },
 
-  /**
-   * Renderiza os dados do resultado da rota gerada (compatibilidade)
-   */
-  showRouteResult(route) {
-    this.setAppState('SUCCESS', route);
-  },
+  setErrorState(title, description) {
+    this.loadingCard.hidden = true;
+    this.resultCard.hidden = true;
+    this.errorCard.hidden = false;
+    this.btnGenerateRoute.disabled = false;
+    this.btnRegenerateRoute.disabled = false;
+    this.inputDistance.disabled = false;
+    this.btnGenerateText.textContent = 'Gerar rota loop';
 
-  /**
-   * Atualiza as informações do painel de desenho manual
-   * @param {object} param0 
-   */
-  updateManualStats({ count, totalMeters }) {
-    this.manualPointsBadge.textContent = `${count} ${count === 1 ? 'ponto' : 'pontos'}`;
-    this.manualTotalDistance.textContent = formatDistance(totalMeters);
-
-    this.btnDrawUndo.disabled = count === 0;
-    this.btnDrawClear.disabled = count === 0;
+    this.errorTitle.textContent = title || 'Não foi possível traçar a rota';
+    this.errorDesc.textContent = description || 'Tente selecionar outro ponto de partida no mapa.';
   }
 };
