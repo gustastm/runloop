@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RunLoop — Planejador de Rotas de Corrida Circulares</title>
+  <meta name="description" content="Planeje rotas circulares de corrida sobre ruas reais com a distância exata que você deseja. Gratuito, sem cadastro e direto no navegador.">
+
+  <!-- Favicon em SVG moderno -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ff4d2e' stroke-width='2.2'%3E%3Cpath d='M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z'/%3E%3Cline x1='4' y1='22' x2='4' y2='15'/%3E%3C/svg%3E">
+
+  <!-- Google Fonts: Inter & Outfit -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Leaflet CSS (versão fixa 1.9.4) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+
+  <!-- Estilos da Aplicação -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div id="app" class="app-layout">
+    <!-- Painel Lateral / Bottom Sheet -->
+    <aside id="sidebar-panel" class="sidebar-panel" aria-label="Painel de controle do RunLoop">
+      <div class="panel-handle" id="panel-handle" aria-hidden="true"></div>
+
+      <!-- Cabeçalho da Aplicação -->
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 18a8 8 0 1 1 8-8 8 8 0 0 1-8 8z"></path>
+              <path d="M12 6v6l4 2"></path>
+            </svg>
+          </div>
+          <div>
+            <h1 class="brand-title">RunLoop</h1>
+          </div>
+        </div>
+      </header>
+
+      <!-- Alternador de Modos (Abas) -->
+      <nav class="mode-tabs" role="tablist" aria-label="Modo de planejamento">
+        <button id="tab-auto-mode" class="tab-button active" role="tab" aria-selected="true" aria-controls="section-auto-mode">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="m16 12-4-4-4 4"></path>
+            <path d="M12 16V8"></path>
+          </svg>
+          Rota Circular
+        </button>
+        <button id="tab-draw-mode" class="tab-button" role="tab" aria-selected="false" aria-controls="section-draw-mode">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 19l7-7 3 3-7 7-3-3z"></path>
+            <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"></path>
+            <path d="M2 2l7.586 7.586"></path>
+            <circle cx="11" cy="11" r="2"></circle>
+          </svg>
+          Desenho Manual
+        </button>
+      </nav>
+
+      <!-- Mensagens de Alerta e Status Geral (aria-live) -->
+      <div id="status-live-region" class="status-live-region sr-only" aria-live="polite"></div>
+
+      <!-- SEÇÃO 1: Rota Circular Automática -->
+      <section id="section-auto-mode" class="mode-section active" role="tabpanel" aria-labelledby="tab-auto-mode">
+        
+        <!-- Ponto de Partida e Localização -->
+        <div class="control-card">
+          <div class="card-header-compact">
+            <span class="card-title-compact">Ponto de Partida</span>
+            <span id="start-coords-badge" class="coords-badge">Nenhum ponto selecionado</span>
+          </div>
+
+          <button id="btn-use-location" class="btn btn-secondary btn-full" type="button">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path d="M12 2v3m0 14v3M2 12h3m14 0h3"></path>
+            </svg>
+            Usar minha localização
+          </button>
+
+          <p class="hint-text">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            Ou clique/arraste o pino no mapa para mudar onde começar.
+          </p>
+        </div>
+
+        <!-- Entrada de Distância -->
+        <div class="control-card">
+          <label for="input-distance" class="card-title-compact">
+            Distância Desejada (km)
+          </label>
+
+          <div class="distance-input-container">
+            <button id="btn-dist-minus" class="stepper-btn" type="button" aria-label="Diminuir 1 km">−</button>
+            <div class="input-with-unit">
+              <input 
+                id="input-distance" 
+                type="number" 
+                min="1" 
+                max="42" 
+                step="0.5" 
+                value="5" 
+                required 
+                aria-describedby="distance-error-msg distance-presets"
+              >
+              <span class="unit-suffix">km</span>
+            </div>
+            <button id="btn-dist-plus" class="stepper-btn" type="button" aria-label="Aumentar 1 km">+</button>
+          </div>
+
+          <!-- Mensagem de erro de validação -->
+          <div id="distance-error-msg" class="field-error-message" role="alert" hidden></div>
+
+          <!-- Chips de distâncias comuns -->
+          <div id="distance-presets" class="presets-row" aria-label="Atalhos de distância">
+            <button class="preset-chip" type="button" data-km="3">3 km</button>
+            <button class="preset-chip active" type="button" data-km="5">5 km</button>
+            <button class="preset-chip" type="button" data-km="10">10 km</button>
+            <button class="preset-chip" type="button" data-km="15">15 km</button>
+            <button class="preset-chip" type="button" data-km="21">21 km</button>
+          </div>
+        </div>
+
+        <!-- Ações Principais -->
+        <div class="action-buttons-group">
+          <button id="btn-generate-route" class="btn btn-primary btn-full" type="button">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polyline>
+            </svg>
+            <span id="btn-generate-text">Gerar rota circular</span>
+          </button>
+
+          <button id="btn-regenerate-route" class="btn btn-outline btn-full" type="button" hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"></path>
+            </svg>
+            Gerar outro traçado
+          </button>
+        </div>
+
+        <!-- Feedback de Carregamento e Progresso das Iterações -->
+        <div id="loading-state" class="state-card loading-card" hidden>
+          <div class="spinner-ring"></div>
+          <div class="loading-content">
+            <strong id="loading-title">Calculando circuito...</strong>
+            <p id="loading-step-text">Ajustando waypoints no OSRM a pé...</p>
+            <div class="progress-bar-track">
+              <div id="progress-bar-fill" class="progress-bar-fill" style="width: 25%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Card de Erro da Rota -->
+        <div id="error-card" class="state-card error-card" role="alert" hidden>
+          <div class="state-icon error-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="8" x2="12" y2="12"></line>
+              <line x1="12" y1="16" x2="12.01" y2="16"></line>
+            </svg>
+          </div>
+          <div class="state-text">
+            <strong id="error-title">Não foi possível traçar a rota</strong>
+            <p id="error-desc">Tente selecionar outro ponto de partida no mapa.</p>
+          </div>
+        </div>
+
+        <!-- Card de Resultado da Rota -->
+        <div id="result-card" class="result-card" hidden>
+          <div class="result-card-header">
+            <span class="result-headline">Resumo do Circuito</span>
+            <span id="tolerance-badge" class="badge badge-success">✓ Dentro da tolerância</span>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric-item highlight">
+              <span class="metric-label">Distância Real</span>
+              <span id="metric-actual-distance" class="metric-value">5.12 km</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">Meta Pedida</span>
+              <span id="metric-requested-distance" class="metric-value">5.00 km</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">Diferença</span>
+              <span id="metric-diff" class="metric-value">+0.12 km (+2.4%)</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">Tempo Médio Estimado</span>
+              <span id="metric-duration" class="metric-value">~28 min</span>
+            </div>
+            <div class="metric-item">
+              <span class="metric-label">Trechos Repetidos</span>
+              <span id="metric-overlap" class="metric-value">0%</span>
+            </div>
+          </div>
+
+          <!-- Alerta de Tolerância ou Ruas Específicas se houver -->
+          <div id="route-warning-banner" class="warning-banner" hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path>
+              <line x1="12" y1="9" x2="12" y2="13"></line>
+              <line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            <span id="route-warning-text"></span>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- SEÇÃO 2: Modo Desenho Manual -->
+      <section id="section-draw-mode" class="mode-section" role="tabpanel" aria-labelledby="tab-draw-mode" hidden>
+        
+        <div class="control-card">
+          <div class="card-header-compact">
+            <span class="card-title-compact">Desenho de Rota Livre</span>
+            <span id="manual-points-count-badge" class="coords-badge">0 pontos</span>
+          </div>
+          
+          <p class="draw-instruction">
+            Clique no mapa para adicionar pontos sequenciais da sua rota.
+          </p>
+
+          <div class="manual-notice-box">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <line x1="12" y1="16" x2="12" y2="12"></line>
+              <line x1="12" y1="8" x2="12.01" y2="8"></line>
+            </svg>
+            <span>
+              <strong>Modo manual:</strong> a distância acumulada é calculada em linha reta entre os pontos (fórmula Haversine), sem ajuste automático à malha viária do OSRM.
+            </span>
+          </div>
+
+          <div class="manual-distance-display">
+            <span class="manual-dist-label">Distância acumulada:</span>
+            <strong id="manual-total-distance" class="manual-dist-val">0.00 km</strong>
+          </div>
+
+          <div class="manual-actions-grid">
+            <button id="btn-draw-undo" class="btn btn-secondary" type="button" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 7v6h6"></path>
+                <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+              </svg>
+              Desfazer ponto
+            </button>
+            <button id="btn-draw-clear" class="btn btn-danger-outline" type="button" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6"></polyline>
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+              </svg>
+              Limpar tudo
+            </button>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- SEÇÃO 3: Extensibilidade (Features Futuras com "Em breve") -->
+      <section class="future-features-section" aria-label="Recursos em desenvolvimento">
+        <h2 class="section-title-muted">Recursos em breve</h2>
+        <div class="future-buttons-grid">
+          <button class="btn btn-future" type="button" disabled title="Recurso em breve">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 14 14"></polyline>
+            </svg>
+            Histórico
+            <span class="badge-soon">Em breve</span>
+          </button>
+          <button class="btn btn-future" type="button" disabled title="Recurso em breve">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+            Favoritos
+            <span class="badge-soon">Em breve</span>
+          </button>
+          <button class="btn btn-future" type="button" disabled title="Recurso em breve">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Exportar GPX
+            <span class="badge-soon">Em breve</span>
+          </button>
+          <button class="btn btn-future" type="button" disabled title="Recurso em breve">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="3 11 22 2 13 21 11 13 3 11"></polygon>
+            </svg>
+            Navegar
+            <span class="badge-soon">Em breve</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Rodapé do Painel -->
+      <footer class="panel-footer">
+        <p>Roteamento real a pé via OpenStreetMap &amp; FOSSGIS OSRM.</p>
+      </footer>
+    </aside>
+
+    <!-- Área Principal com o Mapa -->
+    <main class="map-viewport" id="map-viewport" aria-label="Mapa de corrida interativo">
+      <div id="map" class="map-container"></div>
+    </main>
+  </div>
+
+  <!-- Leaflet JS (versão fixa 1.9.4) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+  <!-- Módulo Principal ES Modules -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
