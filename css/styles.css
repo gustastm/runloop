@@ -62,6 +62,10 @@
   padding: 0;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html, body {
   width: 100%;
   height: 100%;
@@ -96,6 +100,7 @@ button {
   height: 100dvh;
   min-height: -webkit-fill-available;
   overflow: hidden;
+  pointer-events: none;
 }
 
 /* ==========================================================================
@@ -109,6 +114,7 @@ button {
   height: 100dvh;
   z-index: 1;
   background-color: #0b0f19;
+  pointer-events: auto;
 }
 
 .leaflet-container {
@@ -224,6 +230,15 @@ button {
   transform: rotate(45deg);
 }
 
+.pin-badge-end {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.45) !important;
+}
+
+.pin-pulse-end {
+  background: rgba(16, 185, 129, 0.45) !important;
+}
+
 .pin-label {
   margin-top: 3px;
   background: rgba(11, 15, 25, 0.9);
@@ -324,6 +339,86 @@ button {
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-full);
   box-shadow: var(--shadow-float);
+  pointer-events: auto;
+}
+
+/* Barra de Modo Escolher Pontos */
+.pick-points-bar {
+  position: fixed;
+  top: calc(var(--safe-top) + 12px);
+  left: 16px;
+  right: 16px;
+  z-index: 1005;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-dock);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.pick-points-bar[hidden] {
+  display: none !important;
+}
+
+.pick-points-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.segmented-control {
+  display: inline-flex;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 3px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+}
+
+.segment-tab {
+  padding: 6px 16px;
+  border-radius: var(--radius-full);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  transition: all var(--transition-fast);
+}
+
+.segment-tab.active {
+  background: var(--color-primary);
+  color: #fff;
+  box-shadow: 0 2px 8px var(--color-primary-glow);
+}
+
+.pick-points-instruction {
+  font-size: 0.82rem;
+  color: var(--text-main);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.instruction-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  display: inline-block;
+  box-shadow: 0 0 6px var(--color-primary);
+}
+
+.pick-points-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .brand {
@@ -476,12 +571,12 @@ button {
 }
 
 /* ==========================================================================
-   3. BOTÃO FLUTUANTE RECENTRALIZAR
+   3. BOTÕES FLUTUANTES (RECENTRALIZAR E ESCOLHER PONTOS)
    ========================================================================== */
 .floating-action-btn {
   position: fixed;
   right: 16px;
-  bottom: calc(var(--dock-height) + var(--safe-bottom) + 90px);
+  bottom: calc(var(--dock-height) + var(--safe-bottom) + 146px);
   z-index: 1000;
   width: 48px;
   height: 48px;
@@ -496,6 +591,11 @@ button {
   justify-content: center;
   color: #fff;
   transition: all var(--transition-fast);
+  pointer-events: auto;
+}
+
+.floating-action-btn.btn-pick-points {
+  bottom: calc(var(--dock-height) + var(--safe-bottom) + 88px);
 }
 
 .floating-action-btn:hover {
@@ -528,6 +628,7 @@ button {
   grid-template-columns: 1fr auto 1.1fr auto 1.1fr;
   align-items: center;
   transition: opacity var(--transition-smooth), transform var(--transition-smooth);
+  pointer-events: auto;
 }
 
 .stats-card[hidden] {
@@ -599,6 +700,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  pointer-events: auto;
 }
 
 .draw-mode-bar[hidden] {
@@ -648,6 +750,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  pointer-events: auto;
 }
 
 .run-active-bar[hidden] {
@@ -700,6 +803,7 @@ button {
   align-items: center;
   justify-content: space-around;
   padding: 0 16px;
+  pointer-events: auto;
 }
 
 .bottom-dock[hidden] {
@@ -775,6 +879,19 @@ button {
   color: #fff;
 }
 
+.dock-btn-center.waiting-gps .start-btn-circle {
+  background: linear-gradient(135deg, #475569 0%, #334155 100%);
+  border-color: rgba(255, 255, 255, 0.45);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  animation: waiting-pulse 1.8s infinite ease-in-out;
+}
+
+@keyframes waiting-pulse {
+  0% { transform: scale(1); opacity: 0.95; }
+  50% { transform: scale(0.96); opacity: 0.7; }
+  100% { transform: scale(1); opacity: 0.95; }
+}
+
 .start-btn-circle svg {
   margin-left: 4px; /* centralização visual do play */
 }
@@ -807,6 +924,11 @@ button {
   flex-direction: column;
   transform: translateY(100%);
   will-change: transform;
+  pointer-events: auto;
+}
+
+.route-sheet[data-snap="hidden"] {
+  pointer-events: none;
 }
 
 /* Zona de Arraste / Handle */
@@ -896,25 +1018,41 @@ button {
 }
 
 .btn-close-sheet {
-  width: 36px;
-  height: 36px;
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.08);
   border: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-muted);
+  transition: all var(--transition-fast);
 }
 
-/* Indicador de Ponto de Partida */
-.start-point-indicator {
+.btn-close-sheet:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+/* Indicador de Ponto de Partida e Chegada */
+.points-indicators-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.start-point-indicator,
+.end-point-indicator {
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
-.start-point-badge {
+.start-point-badge,
+.end-point-badge {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -935,9 +1073,45 @@ button {
   box-shadow: 0 0 8px var(--color-primary-glow);
 }
 
+.dot-indicator.dot-end {
+  background: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+}
+
 .start-point-hint {
   font-size: 0.72rem;
   color: var(--text-dim);
+}
+
+/* Banner de Rota Ponto a Ponto */
+.point-to-point-banner {
+  background: rgba(6, 182, 212, 0.12);
+  border: 1px solid rgba(6, 182, 212, 0.35);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.point-to-point-banner[hidden] {
+  display: none !important;
+}
+
+.p2p-badge-wrap {
+  display: flex;
+}
+
+.badge-accent {
+  background: rgba(6, 182, 212, 0.25);
+  color: #06b6d4;
+  border: 1px solid rgba(6, 182, 212, 0.45);
+}
+
+.p2p-note {
+  font-size: 0.82rem;
+  color: #a5f3fc;
+  font-weight: 500;
 }
 
 /* Seletor de Distância */
@@ -1321,6 +1495,7 @@ button {
   align-items: center;
   justify-content: center;
   padding: 20px;
+  pointer-events: auto;
 }
 
 .modal-overlay[hidden] {
@@ -1454,6 +1629,12 @@ button {
    ========================================================================== */
 @media (min-width: 900px) {
   .top-bar {
+    max-width: 680px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .pick-points-bar {
     max-width: 680px;
     left: 50%;
     transform: translateX(-50%);

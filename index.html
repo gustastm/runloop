@@ -45,7 +45,7 @@
         </button>
 
         <!-- Botão Mais (⋯) -->
-        <button id="btn-more-menu" class="btn-icon-top" type="button" aria-label="Mais opções" aria-haspopup="true" aria-expanded="false">
+        <button id="btn-more-menu" class="btn-icon-top" type="button" aria-label="Mais opções" aria-haspopup="true" aria-expanded="false" aria-controls="popover-more-menu">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="1.5"></circle>
             <circle cx="19" cy="12" r="1.5"></circle>
@@ -78,7 +78,7 @@
       </div>
     </header>
 
-    <!-- 3. BOTÃO FLUTUANTE RECENTRALIZAR (À DIREITA) -->
+    <!-- 3. BOTÕES FLUTUANTES À DIREITA (RECENTRALIZAR E ESCOLHER PONTOS) -->
     <button id="btn-recenter" class="floating-action-btn" type="button" aria-label="Recentralizar mapa no ponto de partida ou sua posição">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="12" cy="12" r="3"></circle>
@@ -86,6 +86,39 @@
         <circle cx="12" cy="12" r="8"></circle>
       </svg>
     </button>
+
+    <button id="btn-pick-points" class="floating-action-btn btn-pick-points" type="button" aria-label="Escolher pontos">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+        <circle cx="12" cy="10" r="3"></circle>
+      </svg>
+    </button>
+
+    <!-- BARRA DE MODO ESCOLHER PONTOS (INÍCIO E FIM) -->
+    <section id="pick-points-bar" class="pick-points-bar" hidden aria-label="Controles para escolher pontos">
+      <div class="pick-points-header">
+        <div class="segmented-control" role="tablist" aria-label="Ponto a definir">
+          <button id="pick-tab-start" class="segment-tab active" type="button" role="tab" aria-selected="true">Início</button>
+          <button id="pick-tab-end" class="segment-tab" type="button" role="tab" aria-selected="false">Fim</button>
+        </div>
+        <button id="btn-pick-finish" class="btn btn-primary-compact" type="button" aria-label="Concluir escolha de pontos">
+          Concluir
+        </button>
+      </div>
+      <div class="pick-points-instruction">
+        <span class="instruction-dot" aria-hidden="true"></span>
+        <span id="pick-instruction-text">Toque no mapa para definir o Início</span>
+      </div>
+      <div class="pick-points-actions">
+        <button id="btn-pick-use-gps" class="btn btn-secondary-compact" type="button">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/><circle cx="12" cy="12" r="8"/></svg>
+          Usar minha posição
+        </button>
+        <button id="btn-pick-remove-end" class="btn btn-secondary-compact" type="button" disabled>
+          Remover Fim
+        </button>
+      </div>
+    </section>
 
     <!-- 4. CARTÃO DE ESTATÍSTICAS (ACIMA DA BARRA INFERIOR) -->
     <section id="stats-card" class="stats-card" aria-label="Estatísticas da corrida">
@@ -167,7 +200,7 @@
             <polygon points="6 4 20 12 6 20 6 4"></polygon>
           </svg>
         </div>
-        <span class="start-btn-label">Iniciar</span>
+        <span class="start-btn-label" id="start-btn-label">Iniciar</span>
       </button>
 
       <!-- Desenhar (Direita) -->
@@ -205,25 +238,41 @@
       <div class="sheet-body" id="sheet-body">
         <div class="sheet-header">
           <div>
-            <h2 class="sheet-title">Planejar Rota Circular</h2>
-            <p class="sheet-subtitle">Circuito de corrida sobre ruas reais que volta ao ponto de partida.</p>
+            <h2 class="sheet-title" id="sheet-title">Planejar Rota Circular</h2>
+            <p class="sheet-subtitle" id="sheet-subtitle">Circuito de corrida sobre ruas reais que volta ao ponto de partida.</p>
           </div>
           <button id="btn-close-sheet" class="btn-close-sheet" type="button" aria-label="Fechar painel">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
 
-        <!-- Indicador do Ponto de Partida -->
-        <div class="start-point-indicator">
-          <div class="start-point-badge">
-            <span class="dot-indicator" aria-hidden="true"></span>
-            <span id="start-coords-badge">Ponto de partida selecionado</span>
+        <!-- Indicador do Ponto de Partida e Chegada -->
+        <div class="points-indicators-wrap">
+          <div class="start-point-indicator" id="start-point-indicator">
+            <div class="start-point-badge">
+              <span class="dot-indicator" aria-hidden="true"></span>
+              <span id="start-coords-badge">Ponto de partida selecionado</span>
+            </div>
+            <span class="start-point-hint" id="start-point-hint">Toque em "Escolher pontos" para alterar</span>
           </div>
-          <span class="start-point-hint">Toque no mapa para mudar o início</span>
+          <div class="end-point-indicator" id="end-point-indicator" hidden>
+            <div class="end-point-badge">
+              <span class="dot-indicator dot-end" aria-hidden="true"></span>
+              <span id="end-coords-badge">Ponto de chegada selecionado</span>
+            </div>
+          </div>
         </div>
 
-        <!-- Seletor de Distância -->
-        <div class="distance-selector-card">
+        <!-- Banner de Rota Ponto a Ponto (quando Início e Fim são diferentes) -->
+        <div id="point-to-point-banner" class="point-to-point-banner" hidden>
+          <div class="p2p-badge-wrap">
+            <span class="badge badge-accent">Rota Ponto a Ponto (A → B)</span>
+          </div>
+          <p class="p2p-note">Ponto a ponto: a distância é a do caminho.</p>
+        </div>
+
+        <!-- Seletor de Distância (Oculto em modo Ponto a Ponto) -->
+        <div class="distance-selector-card" id="distance-selector-card">
           <label for="input-distance" class="field-label">Distância Alvo</label>
           <div class="distance-input-row">
             <button id="btn-dist-minus" class="stepper-btn" type="button" aria-label="Diminuir 0,5 km">−</button>
@@ -267,6 +316,11 @@
           <button id="btn-regenerate-route" class="btn btn-outline btn-full" type="button" hidden>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
             Gerar outro traçado
+          </button>
+
+          <button id="btn-clear-route" class="btn btn-secondary btn-full" type="button" hidden>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Limpar rota
           </button>
         </div>
 
