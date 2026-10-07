@@ -3,7 +3,7 @@
  * 
  * Orquestra o mapa em tela cheia, localização automática resiliente,
  * bottom sheet encaixável com snaps, rastreador de corrida com wake lock,
- * e modo de desenho manual.
+ * modo de desenho manual e modo de escolha de pontos (Início e Fim).
  */
 
 import { CONFIG } from './config.js';
@@ -11,6 +11,15 @@ import {
   initMap,
   setStartPoint,
   getStartPoint,
+  hasStartPoint,
+  setEndPoint,
+  getEndPoint,
+  hasEndPoint,
+  removeEndPoint,
+  setMarkersDraggable,
+  setMarkerDragEndHandler,
+  setMapDragStartHandler,
+  panToRunner,
   setMapClickHandler,
   updateUserMarker,
   flyToUserLocation,
@@ -28,6 +37,8 @@ import { BottomSheet, SHEET_SNAPS } from './sheet.js';
 import { LocationManager } from './locator.js';
 import { RunTracker, TRACKER_STATES } from './tracker.js';
 import { generateLoopRoute } from './loop-generator.js';
+import { fetchRoute } from './routing.js';
+import { haversineDistance } from './geo.js';
 import {
   addManualPoint,
   undoManualPoint,
@@ -45,6 +56,10 @@ let activeAbortController = null;
 let activeGenerationId = 0;
 let currentRotationSeed = 0;
 let lastGeneratedRoute = null;
+
+let isFollowingRunner = true;
+let activePickTarget = 'start'; // 'start' | 'end'
+let isInternalHistoryNav = false;
 
 /**
  * Inicialização ao carregar a página
@@ -66,11 +81,25 @@ function init() {
       }
 
       // Oculta stats card quando o sheet está aberto
-      if (store.getState().appState !== APP_STATES.CORRENDO && store.getState().appState !== APP_STATES.PAUSADO) {
+      const curState = store.getState().appState;
+      if (curState !== APP_STATES.CORRENDO && curState !== APP_STATES.PAUSADO && curState !== APP_STATES.ESCOLHENDO_PONTOS) {
         UI.statsCard.hidden = (snap === SHEET_SNAPS.HALF || snap === SHEET_SNAPS.FULL);
+      }
+
+      // Se foi arrastado para oculto pelo usuário, volta ao estado de repouso
+      if (snap === SHEET_SNAPS.HIDDEN) {
+        if (curState === APP_STATES.PLANEJANDO || curState === APP_STATES.ROTA_PRONTA) {
+          store.transitionTo(APP_STATES.REPOUSO);
+        }
+        if (window.location.hash === '#rota') {
+          isInternalHistoryNav = true;
+          history.back();
+          setTimeout(() => { isInternalHistoryNav = false; }, 100);
+        }
       }
     }
   });
+  window._sheet = sheet;
 
   // 3. Inicializa o Rastreador de Corrida (GPS)
   tracker = new RunTracker({
@@ -78,6 +107,11 @@ function init() {
       updateUserMarker(sample.lat, sample.lng, sample.accuracy);
       const metrics = tracker.getMetrics();
       updateLiveRunTrail(metrics.coordinates);
+
+      // Segue o corredor automaticamente enquanto não houver arraste manual
+      if (store.getState().appState === APP_STATES.CORRENDO && isFollowingRunner) {
+        panToRunner(sample.lat, sample.lng);
+      }
     },
     onMetricsUpdate: (metrics) => {
       UI.updateStats(
@@ -100,9 +134,15 @@ function init() {
   locator = new LocationManager({
     onSuccess: ({ lat, lng, accuracy }) => {
       updateUserMarker(lat, lng, accuracy);
-      // Define ponto de partida inicial automaticamente na posição do usuário
-      setStartPoint(lat, lng, false);
-      UI.setStartCoordsDisplay(lat, lng);
+      UI.setStartButtonWaiting(false);
+
+      // Define ponto de partida inicial automaticamente se nenhum foi definido pelo usuário
+      if (!hasStartPoint()) {
+        setStartPoint(lat, lng, false);
+        store.setState({ startPoint: { lat, lng } });
+        UI.setStartCoordsDisplay(lat, lng);
+      }
+
       flyToUserLocation(lat, lng, { zoom: 16, duration: 1.6, bottomOffsetPx: 120 });
     },
     onError: (title, message) => {
@@ -111,6 +151,9 @@ function init() {
     onStatusChange: (statusText, statusKey) => {
       const state = store.getState();
       UI.setGpsStatus(statusKey || state.gpsStatus, statusText);
+      if (!state.userLocation) {
+        UI.setStartButtonWaiting(true);
+      }
     }
   });
 
@@ -120,14 +163,63 @@ function init() {
   setupDistanceInput();
   setupRouteSheet();
   setupManualDrawing();
+  setupPickPointsMode();
   setupRunningControls();
   setupMapInteractions();
 
   // 6. Inscreve a UI às mudanças da máquina de estados
   setupStoreSubscription();
 
-  // 7. Dispara a localização automática logo na inicialização
+  // 7. Botão Iniciar começa em estado de espera até obter GPS
+  UI.setStartButtonWaiting(true);
+
+  // 8. Dispara a localização automática logo na inicialização
   locator.requestLocation(false);
+}
+
+/**
+ * Fecha o menu popover 'Mais' (⋯)
+ */
+function closeMoreMenu() {
+  if (UI.popoverMoreMenu && !UI.popoverMoreMenu.hidden) {
+    UI.popoverMoreMenu.hidden = true;
+    UI.btnMoreMenu.setAttribute('aria-expanded', 'false');
+  }
+}
+
+/**
+ * Abre o Bottom Sheet de Rota com sincronização do histórico (#rota)
+ * @param {'compact'|'half'|'full'} [snap=null] 
+ */
+function openRouteSheet(snap = null) {
+  closeMoreMenu();
+  if (store.getState().appState === APP_STATES.ESCOLHENDO_PONTOS) {
+    exitPickPointsMode();
+  }
+
+  if (window.location.hash !== '#rota') {
+    history.pushState({ panel: 'rota' }, '', '#rota');
+  }
+
+  const targetSnap = snap || (lastGeneratedRoute ? SHEET_SNAPS.COMPACT : SHEET_SNAPS.HALF);
+  sheet.setSnap(targetSnap);
+  store.transitionTo(lastGeneratedRoute ? APP_STATES.ROTA_PRONTA : APP_STATES.PLANEJANDO);
+}
+
+/**
+ * Fecha o Bottom Sheet de Rota e restaura o histórico sem recarregar a página
+ * @param {boolean} [restoreHistory=true] 
+ */
+function closeRouteSheet(restoreHistory = true) {
+  const wasOpen = sheet.getSnap() !== SHEET_SNAPS.HIDDEN;
+  sheet.setSnap(SHEET_SNAPS.HIDDEN);
+  store.transitionTo(APP_STATES.REPOUSO);
+
+  if (restoreHistory && wasOpen && window.location.hash === '#rota') {
+    isInternalHistoryNav = true;
+    history.back();
+    setTimeout(() => { isInternalHistoryNav = false; }, 100);
+  }
 }
 
 /**
@@ -139,7 +231,7 @@ function setupTopBar() {
     locator.requestLocation(true);
   });
 
-  // Botão Mais (⋯) abre popover com recursos futuros desabilitados
+  // Botão Mais (⋯) abre/fecha popover
   UI.btnMoreMenu.addEventListener('click', (e) => {
     e.stopPropagation();
     const isHidden = UI.popoverMoreMenu.hidden;
@@ -147,15 +239,23 @@ function setupTopBar() {
     UI.btnMoreMenu.setAttribute('aria-expanded', isHidden ? 'true' : 'false');
   });
 
-  document.addEventListener('click', (e) => {
+  // Fecha ao tocar fora (pointerdown)
+  document.addEventListener('pointerdown', (e) => {
     if (!UI.popoverMoreMenu.hidden && !UI.btnMoreMenu.contains(e.target) && !UI.popoverMoreMenu.contains(e.target)) {
-      UI.popoverMoreMenu.hidden = true;
-      UI.btnMoreMenu.setAttribute('aria-expanded', 'false');
+      closeMoreMenu();
     }
   });
 
-  // Botão flutuante de recentralizar
+  // Fecha ao clicar em qualquer item dentro do popover
+  UI.popoverMoreMenu.querySelectorAll('.popover-item').forEach(item => {
+    item.addEventListener('click', () => {
+      closeMoreMenu();
+    });
+  });
+
+  // Botão flutuante de recentralizar (reativa o seguimento na corrida)
   UI.btnRecenter.addEventListener('click', () => {
+    isFollowingRunner = true;
     const state = store.getState();
     if (state.userLocation) {
       flyToUserLocation(state.userLocation.lat, state.userLocation.lng, { zoom: 16 });
@@ -165,40 +265,75 @@ function setupTopBar() {
       locator.requestLocation(true);
     }
   });
+
+  // Gestão da tecla Escape global
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      if (!UI.popoverMoreMenu.hidden) {
+        closeMoreMenu();
+        return;
+      }
+      if (sheet.getSnap() !== SHEET_SNAPS.HIDDEN) {
+        closeRouteSheet(true);
+        return;
+      }
+      if (store.getState().appState === APP_STATES.ESCOLHENDO_PONTOS) {
+        exitPickPointsMode();
+        return;
+      }
+      if (store.getState().appState === APP_STATES.DESENHANDO) {
+        store.transitionTo(APP_STATES.REPOUSO);
+        return;
+      }
+    }
+  });
+
+  // Gesto/botão Voltar do celular (popstate) fecha o painel #rota sem sair do app
+  window.addEventListener('popstate', () => {
+    if (isInternalHistoryNav) return;
+    if (sheet.getSnap() !== SHEET_SNAPS.HIDDEN) {
+      sheet.setSnap(SHEET_SNAPS.HIDDEN);
+      store.transitionTo(APP_STATES.REPOUSO);
+    }
+  });
 }
 
 /**
  * Conecta ações da barra inferior (Dock)
  */
 function setupBottomDock() {
-  // Ação 1: Rota Loop (abre/fecha sheet)
+  // Ação 1: Rota Loop (abre/fecha alternando)
   UI.dockBtnLoop.addEventListener('click', () => {
     const currentSnap = sheet.getSnap();
     if (currentSnap === SHEET_SNAPS.HIDDEN) {
-      // Se já tem rota gerada, abre no compacto, senão na metade
-      if (lastGeneratedRoute) {
-        sheet.setSnap(SHEET_SNAPS.COMPACT);
-      } else {
-        sheet.setSnap(SHEET_SNAPS.HALF);
-      }
-      store.transitionTo(APP_STATES.PLANEJANDO);
+      openRouteSheet();
     } else {
-      sheet.setSnap(SHEET_SNAPS.HIDDEN);
-      store.transitionTo(APP_STATES.REPOUSO);
+      closeRouteSheet(true);
     }
   });
 
-  // Ação 2: Iniciar Corrida
+  // Ação 2: Iniciar Corrida como no Strava (direto da posição atual sem exigir rota nem pontos)
   UI.dockBtnStart.addEventListener('click', () => {
-    sheet.setSnap(SHEET_SNAPS.HIDDEN);
     const state = store.getState();
-    const initialPos = state.userLocation || state.startPoint;
-    tracker.startRun(initialPos);
+    if (!state.userLocation) {
+      UI.showToast('Aguardando sinal do GPS para iniciar…', 3500);
+      locator.requestLocation(true);
+      return;
+    }
+
+    closeRouteSheet(false);
+    closeMoreMenu();
+    isFollowingRunner = true;
+    tracker.startRun(state.userLocation);
   });
 
   // Ação 3: Modo Desenhar
   UI.dockBtnDraw.addEventListener('click', () => {
-    sheet.setSnap(SHEET_SNAPS.HIDDEN);
+    closeRouteSheet(false);
+    closeMoreMenu();
+    if (store.getState().appState === APP_STATES.ESCOLHENDO_PONTOS) {
+      exitPickPointsMode();
+    }
     store.transitionTo(APP_STATES.DESENHANDO);
   });
 }
@@ -242,9 +377,9 @@ function setupDistanceInput() {
 }
 
 function setupRouteSheet() {
+  // Botão X grande fecha totalmente e volta ao repouso
   UI.btnCloseSheet.addEventListener('click', () => {
-    sheet.setSnap(SHEET_SNAPS.HIDDEN);
-    store.transitionTo(APP_STATES.REPOUSO);
+    closeRouteSheet(true);
   });
 
   // Toque no resumo compacto expande o sheet para visualização dos dados completos
@@ -254,7 +389,7 @@ function setupRouteSheet() {
     });
   }
 
-  // Botão Gerar Rota Loop
+  // Botão Gerar Rota (Loop ou Ponto a Ponto)
   UI.btnGenerateRoute.addEventListener('click', () => {
     currentRotationSeed = Math.floor(Math.random() * 60);
     triggerRouteGeneration();
@@ -265,29 +400,118 @@ function setupRouteSheet() {
     currentRotationSeed = (currentRotationSeed + 72 + Math.floor(Math.random() * 20)) % 360;
     triggerRouteGeneration();
   });
+
+  // Botão Limpar Rota
+  if (UI.btnClearRoute) {
+    UI.btnClearRoute.addEventListener('click', () => {
+      clearRouteLayers();
+      lastGeneratedRoute = null;
+      UI.resultCard.hidden = true;
+      UI.btnRegenerateRoute.hidden = true;
+      UI.btnClearRoute.hidden = true;
+      if (UI.pointToPointBanner) UI.pointToPointBanner.hidden = true;
+      if (UI.distanceSelectorCard) UI.distanceSelectorCard.hidden = false;
+      if (UI.sheetCompactSummary) UI.sheetCompactSummary.hidden = true;
+      UI.showToast('Rota removida do mapa.');
+      store.setState({ routeData: null });
+    });
+  }
 }
 
 /**
- * Geração de rota circular via loop-generator.js
+ * Geração de rota (Circuito Loop via loop-generator.js ou Ponto a Ponto via OSRM)
  */
 async function triggerRouteGeneration() {
-  const startPoint = getStartPoint();
+  const state = store.getState();
+  const startPoint = getStartPoint() || state.startPoint || state.userLocation;
+  const endPoint = getEndPoint() || state.endPoint;
+
   if (!startPoint) {
-    UI.showToast('Defina um ponto de partida tocando no mapa.', 4000);
-    UI.setErrorState('Defina um ponto de partida', 'Toque em qualquer rua no mapa para escolher onde começar.');
+    UI.showToast('Aguarde o sinal de GPS ou defina o Início no mapa.', 4000);
+    UI.setErrorState('Defina um ponto de partida', 'Aguarde o GPS ou toque em "Escolher pontos" para definir o Início.');
     return;
   }
 
+  // Verifica se há Início e Fim distintos (A -> B)
+  let isPointToPoint = false;
+  if (endPoint) {
+    const distBetween = haversineDistance(startPoint, endPoint);
+    if (distBetween < 50) {
+      UI.showToast('Início e Fim a menos de 50 m: tratando como circuito loop.', 3500);
+    } else {
+      isPointToPoint = true;
+    }
+  }
+
+  cancelActiveRequest();
+  const generationId = ++activeGenerationId;
+  activeAbortController = new AbortController();
+
+  // 1. Rota Ponto a Ponto (A -> B)
+  if (isPointToPoint) {
+    store.transitionTo(APP_STATES.GERANDO);
+    UI.setLoadingState(true, 'Traçando rota a pé…', 'Consultando malha viária OSRM…', 1, 1);
+
+    try {
+      const osrmResult = await fetchRoute([startPoint, endPoint], { signal: activeAbortController.signal });
+
+      if (generationId !== activeGenerationId) return;
+
+      // Verifica snap superior a 200 m
+      if (osrmResult.snappedWaypoints && osrmResult.snappedWaypoints.length >= 2) {
+        const snapStart = haversineDistance(startPoint, osrmResult.snappedWaypoints[0]);
+        const snapEnd = haversineDistance(endPoint, osrmResult.snappedWaypoints[1]);
+        if (snapStart > 200 || snapEnd > 200) {
+          const maxSnap = Math.round(Math.max(snapStart, snapEnd));
+          UI.showToast(`Atenção: o ponto foi ajustado para a rua mais próxima a ${maxSnap} m de distância.`, 6000);
+        }
+      }
+
+      const route = {
+        isPointToPoint: true,
+        type: 'point_to_point',
+        coordinates: osrmResult.coordinates,
+        distanceMeters: osrmResult.distanceMeters,
+        durationSeconds: osrmResult.durationSeconds,
+        start: startPoint,
+        end: endPoint,
+        snappedWaypoints: osrmResult.snappedWaypoints
+      };
+
+      lastGeneratedRoute = route;
+      renderRoute(route);
+      UI.populatePointToPointResultCard(route);
+
+      sheet.setSnap(SHEET_SNAPS.COMPACT);
+      store.transitionTo(APP_STATES.ROTA_PRONTA, { routeData: route });
+    } catch (err) {
+      if (generationId !== activeGenerationId) return;
+
+      if (err.name === 'AbortError') {
+        UI.setLoadingState(false);
+        store.transitionTo(APP_STATES.PLANEJANDO);
+        return;
+      }
+
+      console.error('Falha na rota ponto a ponto:', err);
+      UI.setErrorState('Não foi possível traçar a rota', err.message || 'Verifique se os pontos estão próximos de ruas caminháveis.');
+      store.transitionTo(APP_STATES.PLANEJANDO);
+    } finally {
+      if (generationId === activeGenerationId) {
+        activeAbortController = null;
+        UI.setLoadingState(false);
+      }
+    }
+    return;
+  }
+
+  // 2. Rota Circular (Loop)
   const valResult = UI.validateDistance();
   if (!valResult.isValid) {
     UI.showDistanceError(valResult.errorMsg);
     return;
   }
   UI.showDistanceError(null);
-
-  cancelActiveRequest();
-  const generationId = ++activeGenerationId;
-  activeAbortController = new AbortController();
 
   const requestedKm = valResult.valueKm;
 
@@ -313,7 +537,6 @@ async function triggerRouteGeneration() {
       renderRoute(route);
       UI.populateResultCard(route);
 
-      // Ao gerar, vai para o modo compacto com o resumo
       sheet.setSnap(SHEET_SNAPS.COMPACT);
       store.transitionTo(APP_STATES.ROTA_PRONTA, { routeData: route });
     }
@@ -372,6 +595,89 @@ function setupManualDrawing() {
 }
 
 /**
+ * Conecta o modo Escolher Pontos (Início e Fim)
+ */
+function setupPickPointsMode() {
+  // Botão flutuante para entrar no modo
+  UI.btnPickPoints.addEventListener('click', () => {
+    if (store.getState().appState === APP_STATES.ESCOLHENDO_PONTOS) {
+      exitPickPointsMode();
+    } else {
+      enterPickPointsMode();
+    }
+  });
+
+  // Abas Início | Fim
+  UI.pickTabStart.addEventListener('click', () => {
+    activePickTarget = 'start';
+    UI.setChoosePointsMode(true, 'start', hasEndPoint());
+  });
+
+  UI.pickTabEnd.addEventListener('click', () => {
+    activePickTarget = 'end';
+    UI.setChoosePointsMode(true, 'end', hasEndPoint());
+  });
+
+  // Botão Usar Minha Posição
+  UI.btnPickUseGps.addEventListener('click', () => {
+    const userLoc = store.getState().userLocation;
+    if (userLoc) {
+      setStartPoint(userLoc.lat, userLoc.lng, true);
+      store.setState({ startPoint: userLoc });
+      UI.setStartCoordsDisplay(userLoc.lat, userLoc.lng);
+      UI.showToast('Ponto de partida definido na sua localização atual.');
+      if (!hasEndPoint()) {
+        activePickTarget = 'end';
+        UI.setChoosePointsMode(true, 'end', false);
+      }
+    } else {
+      UI.showToast('Buscando sinal de GPS…');
+      locator.requestLocation(true);
+    }
+  });
+
+  // Botão Remover Fim
+  UI.btnPickRemoveEnd.addEventListener('click', () => {
+    removeEndPoint();
+    store.setState({ endPoint: null });
+    UI.setEndCoordsDisplay(null, null);
+    UI.setChoosePointsMode(true, activePickTarget, false);
+    UI.showToast('Ponto final removido. Rota será do tipo loop.');
+  });
+
+  // Botão Concluir
+  UI.btnPickFinish.addEventListener('click', () => {
+    exitPickPointsMode();
+  });
+
+  // Escuta arraste dos marcadores exclusivamente neste modo
+  setMarkerDragEndHandler((type, coords) => {
+    if (type === 'start') {
+      store.setState({ startPoint: coords });
+      UI.setStartCoordsDisplay(coords.lat, coords.lng);
+    } else {
+      store.setState({ endPoint: coords });
+      UI.setEndCoordsDisplay(coords.lat, coords.lng);
+    }
+  });
+}
+
+function enterPickPointsMode() {
+  closeMoreMenu();
+  closeRouteSheet(false);
+  activePickTarget = 'start';
+  setMarkersDraggable(true);
+  store.transitionTo(APP_STATES.ESCOLHENDO_PONTOS);
+  UI.setChoosePointsMode(true, activePickTarget, hasEndPoint());
+}
+
+function exitPickPointsMode() {
+  setMarkersDraggable(false);
+  UI.setChoosePointsMode(false);
+  store.transitionTo(APP_STATES.REPOUSO);
+}
+
+/**
  * Controles de corrida ativa e modais
  */
 function setupRunningControls() {
@@ -411,13 +717,15 @@ function setupRunningControls() {
     UI.runSummaryModal.hidden = true;
     tracker.reset();
     clearLiveRunTrail();
+    store.transitionTo(APP_STATES.REPOUSO);
   });
 }
 
 /**
- * Interações no mapa
+ * Interações no mapa livre
  */
 function setupMapInteractions() {
+  // Clique no mapa: FORA de desenhar ou escolher pontos, NÃO FAZ NADA!
   setMapClickHandler((coords) => {
     const currentState = store.getState().appState;
 
@@ -426,22 +734,31 @@ function setupMapInteractions() {
       return;
     }
 
-    if (currentState === APP_STATES.CORRENDO || currentState === APP_STATES.PAUSADO) {
-      // Durante a corrida, toques no mapa não alteram o ponto de início
+    if (currentState === APP_STATES.ESCOLHENDO_PONTOS) {
+      if (activePickTarget === 'start') {
+        setStartPoint(coords.lat, coords.lng, false);
+        store.setState({ startPoint: coords });
+        UI.setStartCoordsDisplay(coords.lat, coords.lng);
+        if (!hasEndPoint()) {
+          activePickTarget = 'end';
+          UI.setChoosePointsMode(true, 'end', false);
+        }
+      } else {
+        setEndPoint(coords.lat, coords.lng, false);
+        store.setState({ endPoint: coords });
+        UI.setEndCoordsDisplay(coords.lat, coords.lng);
+        UI.setChoosePointsMode(true, 'end', true);
+      }
       return;
     }
 
-    // Em modo normal, define ou move o ponto de partida
-    setStartPoint(coords.lat, coords.lng, false);
-    UI.setStartCoordsDisplay(coords.lat, coords.lng);
-    store.setState({ startPoint: coords });
+    // Em repouso ou planejando: TOQUE NO MAPA NÃO MUDA MAIS O INÍCIO!
+  });
 
-    // Se já havia uma rota gerada, limpa para incentivar novo traçado
-    if (lastGeneratedRoute) {
-      clearRouteLayers();
-      lastGeneratedRoute = null;
-      UI.resultCard.hidden = true;
-      UI.btnRegenerateRoute.hidden = true;
+  // Pausa seguimento do corredor se o usuário arrastar manualmente o mapa
+  setMapDragStartHandler(() => {
+    if (store.getState().appState === APP_STATES.CORRENDO) {
+      isFollowingRunner = false;
     }
   });
 }
@@ -453,6 +770,9 @@ function setupStoreSubscription() {
   store.subscribe((state, prevState) => {
     const appState = state.appState;
 
+    // Atualiza estado do botão Iniciar conforme presença da localização
+    UI.setStartButtonWaiting(!state.userLocation);
+
     // Alterna visualização do Dock e Barras Auxiliares
     if (appState === APP_STATES.CORRENDO || appState === APP_STATES.PAUSADO) {
       UI.bottomDock.hidden = true;
@@ -460,21 +780,34 @@ function setupStoreSubscription() {
       UI.runActiveBar.hidden = false;
       UI.statsCard.hidden = false;
       sheet.setSnap(SHEET_SNAPS.HIDDEN);
+      UI.setChoosePointsMode(false);
     } else if (appState === APP_STATES.DESENHANDO) {
       UI.bottomDock.hidden = true;
       UI.runActiveBar.hidden = true;
       UI.statsCard.hidden = true;
       UI.drawModeBar.hidden = false;
       sheet.setSnap(SHEET_SNAPS.HIDDEN);
+      UI.setChoosePointsMode(false);
       clearRouteLayers();
       renderManualDraw(getManualPoints());
+    } else if (appState === APP_STATES.ESCOLHENDO_PONTOS) {
+      UI.bottomDock.hidden = true;
+      UI.runActiveBar.hidden = true;
+      UI.statsCard.hidden = true;
+      UI.drawModeBar.hidden = true;
+      sheet.setSnap(SHEET_SNAPS.HIDDEN);
+      UI.setChoosePointsMode(true, activePickTarget, hasEndPoint());
     } else {
       UI.bottomDock.hidden = false;
       UI.runActiveBar.hidden = true;
       UI.drawModeBar.hidden = true;
-      // Restaura stats card se o sheet não estiver em tela cheia/metade
+      UI.setChoosePointsMode(false);
+
+      // Restaura stats card se o sheet não estiver ocupando metade ou tela cheia
       UI.statsCard.hidden = (sheet.getSnap() === SHEET_SNAPS.HALF || sheet.getSnap() === SHEET_SNAPS.FULL);
       clearManualLayers();
+
+      // Mantém a rota existente renderizada no mapa
       if (lastGeneratedRoute) {
         renderRoute(lastGeneratedRoute);
       }
