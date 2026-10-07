@@ -52,5 +52,22 @@ export const CONFIG = {
   },
 
   // Ritmo médio de corrida para estimativa de tempo (min/km)
-  ESTIMATED_PACE_MIN_PER_KM: 5.5
+  ESTIMATED_PACE_MIN_PER_KM: 5.5,
+
+  // Tema Escuro dos Tiles OSM (filtro CSS aplicado no tile pane)
+  // Ajustado para garantir alto contraste, legibilidade de nomes de ruas e visual esportivo elegante
+  MAP_DARK_FILTER: 'invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%) saturate(40%)',
+
+  // Parâmetros do Rastreador de Corrida (GPS)
+  TRACKER: {
+    MAX_ACCURACY_METERS: 30,         // Descarta leituras com precisão pior que 30 m
+    MAX_SPEED_MPS: 10,               // Descarta saltos com velocidade superior a 10 m/s (~36 km/h)
+    MIN_DISPLACEMENT_METERS: 5,      // Deslocamento mínimo para somar à distância acumulada (5 m)
+    MIN_RUN_DISTANCE_FOR_PACE: 50,   // Mostra '--:--' enquanto a distância for menor que 50 m
+    INITIAL_TIMEOUT_MS: 15000,       // Timeout da 1ª e 2ª tentativa de localização inicial
+    WATCH_TIMEOUT_MS: 20000,         // Timeout do watchPosition durante a corrida
+    WATCH_MAX_AGE_MS: 1000,          // Idade máxima de cache da posição durante a corrida
+    FLY_TO_ZOOM: 16,                 // Zoom ao centralizar na localização do usuário
+    FLY_TO_DURATION: 1.6             // Duração da animação de voo (segundos)
+  }
 };

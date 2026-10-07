@@ -364,3 +364,158 @@ export function computeRouteQuality(coordinates, startPoint) {
     totalMeters: Math.round(totalMeters)
   };
 }
+
+/**
+ * Avalia uma nova leitura de GPS em relação à última leitura aceita.
+ * 
+ * Filtros de qualidade:
+ * - Descartar leituras com precisão > 30 m (ou maxAccuracyMeters);
+ * - Descartar saltos que impliquem velocidade > 10 m/s (ou maxSpeedMps);
+ * - Considerar deslocamento válido apenas se a distância for >= 5 m (ou minDisplacementMeters).
+ * 
+ * @param {{lat: number, lng: number, timestamp: number, accuracy?: number}|null} previousSample
+ * @param {{lat: number, lng: number, timestamp: number, accuracy?: number}} currentSample
+ * @param {object} [options]
+ * @param {number} [options.maxAccuracyMeters=30]
+ * @param {number} [options.maxSpeedMps=10]
+ * @param {number} [options.minDisplacementMeters=5]
+ * @returns {{
+ *   accepted: boolean,
+ *   reason?: 'ACCURACY_EXCEEDED' | 'SPEED_SPIKE' | 'BELOW_MIN_DISPLACEMENT',
+ *   distanceMeters: number,
+ *   elapsedSeconds: number,
+ *   speedMps: number
+ * }}
+ */
+export function filterGpsSample(previousSample, currentSample, options = {}) {
+  const maxAccuracy = options.maxAccuracyMeters ?? 30;
+  const maxSpeed = options.maxSpeedMps ?? 10;
+  const minDisplacement = options.minDisplacementMeters ?? 5;
+
+  if (typeof currentSample.accuracy === 'number' && currentSample.accuracy > maxAccuracy) {
+    return {
+      accepted: false,
+      reason: 'ACCURACY_EXCEEDED',
+      distanceMeters: 0,
+      elapsedSeconds: 0,
+      speedMps: 0
+    };
+  }
+
+  if (!previousSample) {
+    return {
+      accepted: true,
+      distanceMeters: 0,
+      elapsedSeconds: 0,
+      speedMps: 0
+    };
+  }
+
+  const distanceMeters = haversineDistance(
+    previousSample.lat,
+    previousSample.lng,
+    currentSample.lat,
+    currentSample.lng
+  );
+
+  const elapsedSeconds = Math.max(0.1, (currentSample.timestamp - previousSample.timestamp) / 1000);
+  const speedMps = distanceMeters / elapsedSeconds;
+
+  if (speedMps > maxSpeed) {
+    return {
+      accepted: false,
+      reason: 'SPEED_SPIKE',
+      distanceMeters,
+      elapsedSeconds,
+      speedMps
+    };
+  }
+
+  if (distanceMeters < minDisplacement) {
+    return {
+      accepted: false,
+      reason: 'BELOW_MIN_DISPLACEMENT',
+      distanceMeters,
+      elapsedSeconds,
+      speedMps
+    };
+  }
+
+  return {
+    accepted: true,
+    distanceMeters,
+    elapsedSeconds,
+    speedMps
+  };
+}
+
+/**
+ * Formata duração em segundos para exibição de cronômetro (00:00 ou h:mm:ss)
+ * @param {number} totalSeconds
+ * @returns {string}
+ */
+export function formatStopwatch(totalSeconds) {
+  const sec = Math.max(0, Math.floor(totalSeconds || 0));
+  const hours = Math.floor(sec / 3600);
+  const minutes = Math.floor((sec % 3600) / 60);
+  const seconds = sec % 60;
+
+  const mm = String(minutes).padStart(2, '0');
+  const ss = String(seconds).padStart(2, '0');
+
+  if (hours > 0) {
+    const hh = String(hours).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  }
+  return `${mm}:${ss}`;
+}
+
+/**
+ * Calcula o ritmo médio em minutos por km e formata como "m:ss /km".
+ * Retorna "--:--" se a distância percorrida for menor que a distância mínima (padrão 50 m).
+ * 
+ * @param {number} movingSeconds - tempo em movimento em segundos
+ * @param {number} distanceMeters - distância acumulada em metros
+ * @param {number} [minDistanceMeters=50] - limiar mínimo de distância
+ * @returns {string} ex: "5:30 /km" ou "--:--"
+ */
+export function calculateAveragePace(movingSeconds, distanceMeters, minDistanceMeters = 50) {
+  if (!distanceMeters || distanceMeters < minDistanceMeters || !movingSeconds || movingSeconds <= 0) {
+    return '--:--';
+  }
+
+  const distanceKm = distanceMeters / 1000;
+  const paceSecondsPerKm = movingSeconds / distanceKm;
+  const paceMin = Math.floor(paceSecondsPerKm / 60);
+  const paceSec = Math.floor(paceSecondsPerKm % 60);
+
+  if (paceMin > 99) {
+    return '--:--';
+  }
+
+  return `${paceMin}:${String(paceSec).padStart(2, '0')}`;
+}
+
+/**
+ * Calcula o tempo total em movimento descontando períodos pausados.
+ * 
+ * @param {number} startTimeMs
+ * @param {number} currentTimeMs
+ * @param {Array<{start: number, end: number|null}>} pauses
+ * @returns {number} Segundos em movimento
+ */
+export function calculateTotalMovingTime(startTimeMs, currentTimeMs, pauses = []) {
+  if (!startTimeMs || currentTimeMs <= startTimeMs) return 0;
+
+  let totalPausedMs = 0;
+  for (const pause of pauses) {
+    const pauseStart = Math.max(startTimeMs, pause.start);
+    const pauseEnd = pause.end ? Math.min(currentTimeMs, pause.end) : currentTimeMs;
+    if (pauseEnd > pauseStart) {
+      totalPausedMs += (pauseEnd - pauseStart);
+    }
+  }
+
+  const activeMs = Math.max(0, (currentTimeMs - startTimeMs) - totalPausedMs);
+  return Math.floor(activeMs / 1000);
+}
