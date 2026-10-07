@@ -150,10 +150,10 @@ export class LocationManager {
   }
 
   _updateStatus(statusKey, statusText, accuracy = null) {
-    this.onStatusChange(statusText);
     store.setState({
       gpsStatus: statusKey,
       gpsAccuracy: accuracy
     });
+    this.onStatusChange(statusText, statusKey);
   }
 }

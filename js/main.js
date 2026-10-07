@@ -108,9 +108,9 @@ function init() {
     onError: (title, message) => {
       UI.showToast(`${title}: ${message}`, 5000);
     },
-    onStatusChange: (statusText) => {
+    onStatusChange: (statusText, statusKey) => {
       const state = store.getState();
-      UI.setGpsStatus(state.gpsStatus, statusText);
+      UI.setGpsStatus(statusKey || state.gpsStatus, statusText);
     }
   });
 

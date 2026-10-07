@@ -22,12 +22,15 @@
 O **RunLoop** foi desenvolvido para corredores que desejam treinar uma distância específica (ex.: 5 km, 10 km ou 21 km) partindo da sua casa ou de um ponto qualquer e retornando exatamente ao mesmo local, sem precisar percorrer o mesmo caminho de ida e volta e sem ter que planejar manualmente curva por curva.
 
 ### Principais Funcionalidades:
-- **Geração de Circuito Fechado**: Traçado circular inteligente em vias e calçadas reais para pedestres.
-- **Convergência Iterativa**: Ajusta dinamicamente o raio do circuito até atingir a distância desejada dentro de uma tolerância padrão de ±10%.
-- **Variação de Traçado**: Botão "Gerar outro traçado" cria alternativas explorando outros quadrantes da região.
-- **Geolocalização & Ponto Personalizável**: Use seu GPS ou clique/arraste o pino no mapa para definir onde começar.
-- **Modo Desenho Manual**: Desenhe livremente no mapa clicando ponto a ponto, com cálculo em tempo real de distância em linha reta (Haversine), botões de desfazer e limpar.
-- **Mobile-first**: Interface moderna e adaptada com painel lateral em desktops e bottom sheet em smartphones.
+- **Mapa em Tela Cheia Mobile-First**: O mapa ocupa 100% da viewport (`100dvh`, fixed) com tema escuro via filtro CSS nos tiles do OpenStreetMap.
+- **Barra Superior Flutuante**: Mini logo, chip de status GPS com indicador visual e menu de opções com recursos futuros transparentemente sinalizados ("Em breve").
+- **Localização Automática Resiliente**: Localização automática ao abrir o app com 1ª tentativa de alta precisão e fallback de baixa precisão; ponto azul "você" com pulso suave e raio de precisão; recentralização inteligente com compensação de offset vertical.
+- **Cartão de Estatísticas (3 Colunas)**: Exibe Tempo (`00:00`), Ritmo Médio (`/km`) e Distância (`km`) com números grandes em fonte tabular.
+- **Barra de Ações Inferior (Dock Flutuante)**: Três ações principais — "Rota loop", "Iniciar" (botão circular de destaque de 72 px com gradiente coral) e "Desenhar".
+- **Bottom Sheet de Rota Loop com Snaps**: Alturas inteligentes (oculto, compacto ~140 px com resumo de rota, meio e cheio), arrasto suave por `transform: translateY()` via PointerEvents e tratamento de `visualViewport` para teclado virtual.
+- **Rastreador de Corrida em Tempo Real**: Sessão de treino direta no navegador com filtros geométricos de GPS (precisão $\le 30$ m, velocidade $\le 10$ m/s e deslocamento $\ge 5$ m), suporte a Screen Wake Lock API e modal pós-corrida.
+- **Geração de Circuito Fechado & Qualidade de Rota**: Algoritmo iterativo OSRM com métricas de distância real, meta, tolerância percentual, trechos repetidos (overlap %) e estimativa de tempo.
+- **Modo Desenho Manual**: Desenhe no mapa clicando ponto a ponto, com distância acumulada, desfazer e limpar.
 
 ---
 
@@ -139,6 +142,8 @@ Antes da codificação, foram realizados testes práticos com as APIs públicas 
 - **Detecção Espacial de Calçadas Opostas**: O algoritmo de qualidade indexa amostras em células de ~10 metros com raio de busca de até 16 metros. Em avenidas onde o corredor de ida usa uma calçada e a volta usa a calçada oposta (distantes 10 a 15 metros entre si), o algoritmo intencionalmente computa o trecho como a mesma via compartilhada, refletindo a experiência do corredor que não deseja correr duas vezes pela mesma avenida.
 - **Política de Uso e Rate Limit**: O servidor FOSSGIS/OSRM é comunitário e gratuito. O RunLoop executa requisições sequenciais com pausas controladas (`DELAY_BETWEEN_ATTEMPTS_MS = 250ms`) e teto máximo de 12 requisições por geração.
 - **Geolocalização**: A especificação W3C exige conexão segura (`https://` ou `localhost`) e provedor ativo do sistema operacional. Caso o serviço do sistema esteja indisponível, o usuário pode definir o ponto de partida diretamente no mapa com um clique.
+- **Rastreador no Navegador e Ausência de Segundo Plano**: Como uma Single Page Application pura rodando no navegador, o rastreamento via `watchPosition` depende do navegador permanecer aberto e visível. Nos smartphones (iOS Safari e Android Chrome), os sistemas operacionais suspendem a execução do JavaScript e o GPS caso o usuário bloqueie a tela ou alterne de aplicativo. O RunLoop utiliza a Screen Wake Lock API quando disponível para manter a tela ligada durante a atividade.
+- **Sem Persistência de Dados**: O aplicativo opera de forma stateless (sem banco de dados, sem localStorage e sem cookies). Ao finalizar um treino, os dados consolidados são apresentados na tela e descartados ao fechar o modal.
 
 ---
 
@@ -212,4 +217,5 @@ O RunLoop é uma aplicação 100% estática (HTML, CSS e JavaScript Vanilla com 
 ## 11. Privacidade e Proteção de Dados
 
 - **Sem Coleta nem Armazenamento**: O aplicativo não possui banco de dados, contas de usuário, telemetria nem rastreadores. A localização geográfica do usuário **não é gravada nem mantida** pelo aplicativo.
+- **Traçado da Corrida 100% Local**: Durante a atividade de corrida em tempo real, as coordenadas do GPS capturadas pelo navegador **nunca saem do dispositivo**. O cálculo de ritmo, tempo e distância é executado exclusivamente na CPU local do usuário via fórmulas matemáticas puras.
 - **Roteamento Público**: Ao gerar um circuito, apenas as coordenadas geográficas do ponto de partida e dos waypoints intermediários são enviadas ao servidor público de roteamento a pé (OSRM / FOSSGIS OpenStreetMap) para consulta das vias viárias. Nenhuma informação pessoal ou de dispositivo é transmitida.
