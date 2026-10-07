@@ -189,3 +189,27 @@ Para transformar este MVP em um produto comercial escalável com alta demanda:
    - Rodar um container Docker com `osrm-backend` (`osrm-routed`) com o arquivo PBF do estado/país desejado e perfil `foot.lua` otimizado para corredores.
 2. **Serviços Gerenciados Alternativos**:
    - Provedores com planos pagos com SLA e chaves de API, tais como Stadia Maps, Mapbox Directions API ou GraphHopper.
+
+---
+
+## 10. Publicação (GitHub Pages)
+
+O RunLoop é uma aplicação 100% estática (HTML, CSS e JavaScript Vanilla com ES Modules), sem dependências de compilação ou backend, pronta para hospedagem gratuita no **GitHub Pages**:
+
+1. Suba o repositório no GitHub:
+   ```bash
+   git remote add origin https://github.com/SEU_USUARIO/runloop.git
+   git branch -M main
+   git push -u origin main
+   ```
+2. No GitHub, acesse **Settings** > **Pages**.
+3. Em **Source**, selecione `Deploy from a branch`, escolha o branch `main` (ou `master`) e a pasta `/ (root)`.
+4. O arquivo `.nojekyll` na raiz garante que o GitHub Pages sirva todos os arquivos estáticos e subpastas sem filtros do Jekyll.
+5. O site estará disponível em `https://SEU_USUARIO.github.io/runloop/`. Todos os caminhos de assets e módulos utilizam caminhos relativos (`./`), funcionando em subdiretórios sem depender da raiz do domínio.
+
+---
+
+## 11. Privacidade e Proteção de Dados
+
+- **Sem Coleta nem Armazenamento**: O aplicativo não possui banco de dados, contas de usuário, telemetria nem rastreadores. A localização geográfica do usuário **não é gravada nem mantida** pelo aplicativo.
+- **Roteamento Público**: Ao gerar um circuito, apenas as coordenadas geográficas do ponto de partida e dos waypoints intermediários são enviadas ao servidor público de roteamento a pé (OSRM / FOSSGIS OpenStreetMap) para consulta das vias viárias. Nenhuma informação pessoal ou de dispositivo é transmitida.

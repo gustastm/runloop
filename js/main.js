@@ -147,7 +147,28 @@ function setupLocationButton() {
     UI.setAppState('LOCATING');
 
     try {
-      const pos = await getCurrentUserLocation();
+      let pos;
+      try {
+        // 1ª tentativa: alta precisão com timeout de 20s
+        pos = await getCurrentUserLocation({
+          enableHighAccuracy: true,
+          timeout: 20000,
+          maximumAge: 0
+        });
+      } catch (firstErr) {
+        // Se falhar com código 2 (POSITION_UNAVAILABLE) ou 3 (TIMEOUT), tenta UMA vez com enableHighAccuracy: false
+        if (firstErr.code === 2 || firstErr.code === 3) {
+          console.warn(`[RunLoop GEO] Falha na 1ª tentativa com alta precisão (código ${firstErr.code}). Tentando fallback com enableHighAccuracy: false...`);
+          pos = await getCurrentUserLocation({
+            enableHighAccuracy: false,
+            timeout: 20000,
+            maximumAge: 0
+          });
+        } else {
+          throw firstErr;
+        }
+      }
+
       setStartPoint(pos.lat, pos.lng, true);
       UI.setStartCoordsDisplay(pos.lat, pos.lng);
       UI.setAppState('IDLE');
