@@ -104,8 +104,13 @@ export class BottomSheet {
   }
 
   _bindEvents() {
-    // Touch/pointer events restritos à área do handle
+    // Touch/pointer events no handle e no cabeçalho
     this.handle.addEventListener('pointerdown', (e) => this._onPointerDown(e));
+    const header = this.el.querySelector('.sheet-header');
+    if (header) {
+      header.addEventListener('pointerdown', (e) => this._onPointerDown(e));
+    }
+
     window.addEventListener('pointermove', (e) => this._onPointerMove(e));
     window.addEventListener('pointerup', (e) => this._onPointerUp(e));
     window.addEventListener('pointercancel', (e) => this._onPointerUp(e));
@@ -122,13 +127,18 @@ export class BottomSheet {
     if (e.target.closest('button, input, a')) return;
 
     this.isDragging = true;
+    this.startSnap = this.currentSnap;
     this.startY = e.clientY;
     this.startTranslateY = this.currentTranslateY;
     this.sheetHeight = this.el.offsetHeight;
 
     this.el.style.transition = 'none';
-    if (this.handle.setPointerCapture) {
-      this.handle.setPointerCapture(e.pointerId);
+    const targetCapture = e.currentTarget || this.handle;
+    if (targetCapture.setPointerCapture) {
+      try {
+        targetCapture.setPointerCapture(e.pointerId);
+        this._activeCaptureElement = targetCapture;
+      } catch {}
     }
   }
 
@@ -151,14 +161,21 @@ export class BottomSheet {
     if (!this.isDragging) return;
     this.isDragging = false;
 
-    if (this.handle.releasePointerCapture) {
+    if (this._activeCaptureElement && this._activeCaptureElement.releasePointerCapture) {
       try {
-        this.handle.releasePointerCapture(e.pointerId);
+        this._activeCaptureElement.releasePointerCapture(e.pointerId);
       } catch {}
+      this._activeCaptureElement = null;
     }
 
     const deltaY = e.clientY - this.startY;
     const windowH = window.innerHeight;
+
+    // Regra explícita: arrastar o handle/cabeçalho para baixo a partir do estado compacto vai para oculto
+    if (this.startSnap === SHEET_SNAPS.COMPACT && deltaY > 20) {
+      this.setSnap(SHEET_SNAPS.HIDDEN);
+      return;
+    }
 
     // Decisão do snap mais próximo com base na posição e sentido do arraste
     const compactY = Math.max(0, this.sheetHeight - 140);
@@ -168,11 +185,11 @@ export class BottomSheet {
     const current = this.currentTranslateY;
 
     // Se houve gesto rápido para baixo
-    if (deltaY > 60) {
-      if (current < halfY) {
+    if (deltaY > 50) {
+      if (this.startSnap === SHEET_SNAPS.FULL) {
         this.setSnap(SHEET_SNAPS.HALF);
-      } else if (current < compactY) {
-        this.setSnap(SHEET_SNAPS.COMPACT);
+      } else if (this.startSnap === SHEET_SNAPS.HALF) {
+        this.setSnap(deltaY > 100 ? SHEET_SNAPS.HIDDEN : SHEET_SNAPS.COMPACT);
       } else {
         this.setSnap(SHEET_SNAPS.HIDDEN);
       }

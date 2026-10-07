@@ -10,6 +10,13 @@ import { CONFIG } from './config.js';
 
 let mapInstance = null;
 let startMarker = null;
+let endMarker = null;
+let currentStartPoint = null;
+let currentEndPoint = null;
+let markersDraggable = false;
+let onMarkerDragEndCallback = null;
+let onMapDragStartCallback = null;
+
 let userMarker = null;
 let accuracyCircle = null;
 let routePolylineCasing = null;
@@ -29,7 +36,7 @@ let onMapClickCallback = null;
  * @param {string} label 
  * @returns {L.DivIcon}
  */
-function createStartPinIcon(label = 'Início') {
+export function createStartPinIcon(label = 'Início') {
   return L.divIcon({
     className: 'runloop-marker-container',
     html: `
@@ -39,6 +46,31 @@ function createStartPinIcon(label = 'Início') {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path>
             <line x1="4" y1="22" x2="4" y2="15"></line>
+          </svg>
+        </div>
+        <span class="pin-label">${label}</span>
+      </div>
+    `,
+    iconSize: [36, 48],
+    iconAnchor: [18, 44]
+  });
+}
+
+/**
+ * Cria o ícone SVG customizado para o ponto de chegada (Fim)
+ * @param {string} label 
+ * @returns {L.DivIcon}
+ */
+export function createEndPinIcon(label = 'Fim') {
+  return L.divIcon({
+    className: 'runloop-marker-container',
+    html: `
+      <div class="runloop-start-pin runloop-end-pin" title="${label}">
+        <div class="pin-pulse pin-pulse-end"></div>
+        <div class="pin-badge pin-badge-end">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"></circle>
+            <path d="m9 12 2 2 4-4"></path>
           </svg>
         </div>
         <span class="pin-label">${label}</span>
@@ -78,8 +110,6 @@ function createWaypointIcon(index) {
     iconAnchor: [10, 10]
   });
 }
-
-let currentStartPoint = null;
 
 /**
  * Inicializa a instância do Leaflet
@@ -121,6 +151,13 @@ export function initMap(containerId = 'map', initialView = CONFIG.DEFAULT_MAP_VI
         lat: Number(e.latlng.lat.toFixed(6)),
         lng: Number(e.latlng.lng.toFixed(6))
       });
+    }
+  });
+
+  // Pausa seguimento da corrida quando o usuário arrasta manualmente o mapa
+  mapInstance.on('dragstart', () => {
+    if (typeof onMapDragStartCallback === 'function') {
+      onMapDragStartCallback();
     }
   });
 
@@ -213,12 +250,27 @@ export function flyToUserLocation(lat, lng, options = {}) {
 }
 
 /**
+ * Atualiza os rótulos visuais dos marcadores:
+ * - Se só houver Início: 'Início / Fim'
+ * - Se houver Início e Fim: 'Início' e 'Fim'
+ */
+export function updateMarkerLabels() {
+  if (!startMarker) return;
+  if (endMarker) {
+    startMarker.setIcon(createStartPinIcon('Início'));
+    endMarker.setIcon(createEndPinIcon('Fim'));
+  } else {
+    startMarker.setIcon(createStartPinIcon('Início / Fim'));
+  }
+}
+
+/**
  * Define ou move o marcador de início
  * @param {number} lat 
  * @param {number} lng 
- * @param {boolean} [pan=true] - se deve centralizar a visão do mapa
+ * @param {boolean} [pan=false] - se deve centralizar a visão do mapa
  */
-export function setStartPoint(lat, lng, pan = true) {
+export function setStartPoint(lat, lng, pan = false) {
   if (!mapInstance) return;
 
   const latNum = Number(lat.toFixed(6));
@@ -226,11 +278,12 @@ export function setStartPoint(lat, lng, pan = true) {
   const latlng = [latNum, lngNum];
 
   currentStartPoint = { lat: latNum, lng: lngNum };
+  const label = currentEndPoint ? 'Início' : 'Início / Fim';
 
   if (!startMarker) {
     startMarker = L.marker(latlng, {
-      icon: createStartPinIcon('Início'),
-      draggable: true
+      icon: createStartPinIcon(label),
+      draggable: markersDraggable
     }).addTo(mapInstance);
 
     startMarker.on('dragend', (e) => {
@@ -239,15 +292,13 @@ export function setStartPoint(lat, lng, pan = true) {
       const updatedLng = Number(pos.lng.toFixed(6));
       currentStartPoint = { lat: updatedLat, lng: updatedLng };
 
-      if (typeof onMapClickCallback === 'function') {
-        onMapClickCallback({
-          lat: updatedLat,
-          lng: updatedLng
-        });
+      if (typeof onMarkerDragEndCallback === 'function') {
+        onMarkerDragEndCallback('start', currentStartPoint);
       }
     });
   } else {
     startMarker.setLatLng(latlng);
+    startMarker.setIcon(createStartPinIcon(label));
   }
 
   if (pan) {
@@ -255,15 +306,101 @@ export function setStartPoint(lat, lng, pan = true) {
   }
 }
 
-export function getStartPoint() {
-  if (currentStartPoint) {
-    return { ...currentStartPoint };
+/**
+ * Define ou move o marcador de fim
+ * @param {number} lat 
+ * @param {number} lng 
+ * @param {boolean} [pan=false]
+ */
+export function setEndPoint(lat, lng, pan = false) {
+  if (!mapInstance) return;
+
+  const latNum = Number(lat.toFixed(6));
+  const lngNum = Number(lng.toFixed(6));
+  const latlng = [latNum, lngNum];
+
+  currentEndPoint = { lat: latNum, lng: lngNum };
+
+  if (!endMarker) {
+    endMarker = L.marker(latlng, {
+      icon: createEndPinIcon('Fim'),
+      draggable: markersDraggable
+    }).addTo(mapInstance);
+
+    endMarker.on('dragend', (e) => {
+      const pos = e.target.getLatLng();
+      const updatedLat = Number(pos.lat.toFixed(6));
+      const updatedLng = Number(pos.lng.toFixed(6));
+      currentEndPoint = { lat: updatedLat, lng: updatedLng };
+
+      if (typeof onMarkerDragEndCallback === 'function') {
+        onMarkerDragEndCallback('end', currentEndPoint);
+      }
+    });
+  } else {
+    endMarker.setLatLng(latlng);
+    endMarker.setIcon(createEndPinIcon('Fim'));
   }
-  return null;
+
+  updateMarkerLabels();
+
+  if (pan) {
+    flyToUserLocation(latNum, lngNum, { zoom: 16, bottomOffsetPx: 120 });
+  }
+}
+
+export function removeEndPoint() {
+  if (endMarker && mapInstance) {
+    mapInstance.removeLayer(endMarker);
+    endMarker = null;
+  }
+  currentEndPoint = null;
+  updateMarkerLabels();
+}
+
+export function getStartPoint() {
+  return currentStartPoint ? { ...currentStartPoint } : null;
 }
 
 export function hasStartPoint() {
   return currentStartPoint !== null;
+}
+
+export function getEndPoint() {
+  return currentEndPoint ? { ...currentEndPoint } : null;
+}
+
+export function hasEndPoint() {
+  return currentEndPoint !== null;
+}
+
+/**
+ * Ativa ou desativa a capacidade de arrastar os marcadores de início e fim
+ * @param {boolean} isDraggable 
+ */
+export function setMarkersDraggable(isDraggable) {
+  markersDraggable = isDraggable;
+  if (startMarker && startMarker.dragging) {
+    if (isDraggable) startMarker.dragging.enable();
+    else startMarker.dragging.disable();
+  }
+  if (endMarker && endMarker.dragging) {
+    if (isDraggable) endMarker.dragging.enable();
+    else endMarker.dragging.disable();
+  }
+}
+
+export function setMarkerDragEndHandler(callback) {
+  onMarkerDragEndCallback = callback;
+}
+
+export function setMapDragStartHandler(callback) {
+  onMapDragStartCallback = callback;
+}
+
+export function panToRunner(lat, lng) {
+  if (!mapInstance) return;
+  mapInstance.panTo([lat, lng], { animate: true, duration: 0.5 });
 }
 
 /**
@@ -308,9 +445,12 @@ export function renderRoute(routeData, paddingOptions = {}) {
     }
   }
 
-  // Atualiza marcador de início
+  // Atualiza marcadores de início e fim
   if (routeData.start) {
     setStartPoint(routeData.start.lat, routeData.start.lng, false);
+  }
+  if (routeData.end) {
+    setEndPoint(routeData.end.lat, routeData.end.lng, false);
   }
 
   // Enquadra a rota considerando a barra superior e o bottom sheet compacto
